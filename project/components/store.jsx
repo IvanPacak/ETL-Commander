@@ -1,40 +1,120 @@
-// Global app state — React Context powering real data operations.
+// Global app state — React Context s Supabase persistovaním.
+// Každá kľúčová operácia sa ukladá do DB a zapísuje do audit.action_log.
 
 const AppStateContext = React.createContext(null);
 
 function AppStateProvider({ children }) {
-  const [uploadedFiles, setUploadedFiles] = React.useState({});
-  const [activeTable, setActiveTable] = React.useState(null);
-  const [mappingRules, setMappingRules] = React.useState(MAPPING_RULES);
+  const [uploadedFiles, setUploadedFiles]   = React.useState({});
+  const [fileIds, setFileIds]               = React.useState({}); // fileKey → supabase UUID
+  const [activeTable, setActiveTable]       = React.useState(null);
+  const [mappingRules, setMappingRules]     = React.useState(MAPPING_RULES);
   const [numeratorRules, setNumeratorRules] = React.useState(NUMERATOR_RULES);
   const [transformedData, setTransformedData] = React.useState({});
-  const [auditLog, setAuditLog] = React.useState([]);
+  const [auditLog, setAuditLog]             = React.useState([]);
+  const [dbAuditLog, setDbAuditLog]         = React.useState([]);
+  const [dbReady, setDbReady]               = React.useState(false);
 
-  const addAuditEntry = (action, detail, user = 'Peter Novák') => {
-    const now = new Date();
+  // ── Inicializácia: načítaj pravidlá a audit log zo Supabase pri štarte ──
+  React.useEffect(() => {
+    async function init() {
+      try {
+        // Načítaj mapping pravidlá zo Supabase (ak existujú)
+        const rulesets = await dbLoadAllMappingRulesets();
+        if (rulesets && rulesets.length > 0) {
+          const merged = { ...MAPPING_RULES };
+          rulesets.forEach(rs => {
+            if (rs.mapping_rules && rs.mapping_rules.length > 0) {
+              // Mapuj DB formát → interný formát store.jsx
+              merged['db_' + rs.id] = rs.mapping_rules.map(r => ({
+                src:  r.source_value,
+                op:   r.operator === 'LIKE' ? 'LIKE' : r.operator === 'ELSE' ? 'ELSE' : '=',
+                tgt:  r.target_value,
+                prio: r.priority,
+              }));
+            }
+          });
+          setMappingRules(merged);
+        }
+
+        // Načítaj posledných 50 audit záznamov zo Supabase
+        const log = await dbLoadAuditLog(50);
+        if (log && log.length > 0) {
+          const formatted = log.map(l => ({
+            time:   new Date(l.ts).toLocaleString('sk-SK', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }),
+            user:   l.user_name,
+            action: l.action_type,
+            detail: l.detail,
+            fromDb: true,
+          }));
+          setDbAuditLog(formatted);
+        }
+
+        setDbReady(true);
+        console.log('[ETL Commander] Store initialized from Supabase ✓');
+      } catch (e) {
+        console.warn('[ETL Commander] Supabase init failed, running offline:', e.message);
+        setDbReady(false);
+      }
+    }
+    init();
+  }, []);
+
+  // ── Audit log helper ──────────────────────────────────────────────────────
+  const addAuditEntry = React.useCallback(async (action, detail, user = 'Peter Novák') => {
+    const now  = new Date();
     const time = now.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+    // Pridaj do lokálneho state okamžite (UX)
     setAuditLog(prev => [{ time: `dnes ${time}`, user, action, detail }, ...prev]);
-  };
+    // Persist do Supabase async (bez blokovania UI)
+    dbAddAuditEntry(action, detail, user).catch(e =>
+      console.warn('[ETL] audit persist failed:', e.message)
+    );
+  }, []);
 
-  const loadFile = (file) => {
-    return new Promise((resolve, reject) => {
+  // ── loadFile: načíta Excel/CSV, uloží do pamäte + Supabase ───────────────
+  const loadFile = React.useCallback((file) => {
+    return new Promise(async (resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
-          const data = new Uint8Array(e.target.result);
+          const data     = new Uint8Array(e.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-          const fileKey = file.name.replace(/\.(xlsx|csv|xls)$/i, '');
+          const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+          const rows     = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+          const fileKey  = file.name.replace(/\.(xlsx|csv|xls)$/i, '');
+          const cols     = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+          // 1. Lokálny state (okamžite)
           setUploadedFiles(prev => ({ ...prev, [fileKey]: rows }));
           setActiveTable(fileKey);
-          addAuditEntry('file.upload', `Nahraný súbor ${file.name} (${rows.length} riadkov)`);
-          resolve({
-            name: fileKey,
-            rows,
-            columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+
+          // 2. Supabase: zaregistruj súbor
+          const ext = file.name.split('.').pop().toLowerCase();
+          const fileId = await dbSaveImportedFile({
+            fileName: file.name,
+            fileType: ['xlsx','xls'].includes(ext) ? 'xlsx' : 'csv',
+            rowCount: rows.length,
+            colCount: cols.length,
           });
+
+          if (fileId) {
+            setFileIds(prev => ({ ...prev, [fileKey]: fileId }));
+
+            // 3. Ak je to GL_TRANSACTIONS, vlož riadky do raw.gl_transactions
+            const isGl = fileKey.toLowerCase().includes('gl') ||
+                         fileKey.toLowerCase().includes('transaction') ||
+                         cols.includes('ACCDB') || cols.includes('accdb');
+            if (isGl) {
+              const inserted = await dbInsertGlTransactions(fileId, rows);
+              console.log(`[ETL] Inserted ${inserted} GL transactions to Supabase`);
+              await dbLogPipelineRun('RAW', 'success', inserted, null);
+            }
+          }
+
+          // 4. Audit log
+          await addAuditEntry('file.upload', `Nahraný súbor ${file.name} (${rows.length} riadkov)`);
+
+          resolve({ name: fileKey, rows, columns: cols });
         } catch (err) {
           reject(err);
         }
@@ -42,12 +122,13 @@ function AppStateProvider({ children }) {
       reader.onerror = reject;
       reader.readAsArrayBuffer(file);
     });
-  };
+  }, [addAuditEntry]);
 
-  const applyMapping = (tableKey, mappingId, sourceCol, targetColName) => {
+  // ── applyMapping: transformuje v pamäti + update kategórií v Supabase ────
+  const applyMapping = React.useCallback(async (tableKey, mappingId, sourceCol, targetColName) => {
     const rows = uploadedFiles[tableKey];
     if (!rows) return null;
-    const rules = mappingRules[mappingId] || [];
+    const rules  = mappingRules[mappingId] || [];
     const sorted = [...rules].sort((a, b) => (a.prio || 99) - (b.prio || 99));
 
     const transformed = rows.map(row => {
@@ -67,11 +148,22 @@ function AppStateProvider({ children }) {
     });
 
     setTransformedData(prev => ({ ...prev, [tableKey + '_mapped']: transformed }));
-    addAuditEntry('mapping.apply', `Mapping ${mappingId} → stĺpec "${targetColName}" (${rows.length} riadkov)`);
-    return transformed;
-  };
+    await addAuditEntry('mapping.apply', `Mapping ${mappingId} → stĺpec "${targetColName}" (${rows.length} riadkov)`);
 
-  const applyNumerator = (tableKey, numeratorId, accountCol, amountCol) => {
+    // Persist kategórií do Supabase (async, ak máme fileId)
+    const fileId = fileIds[tableKey];
+    if (fileId) {
+      const updates = transformed.map(r => ({ accdb: String(r[sourceCol] || ''), category: r[targetColName] }));
+      dbUpdateGlCategory(fileId, updates)
+        .then(() => dbLogPipelineRun('SAVE', 'success', updates.length, null))
+        .catch(e => console.warn('[ETL] mapping persist failed:', e.message));
+    }
+
+    return transformed;
+  }, [uploadedFiles, mappingRules, fileIds, addAuditEntry]);
+
+  // ── applyNumerator: počíta sign + ukladá do Supabase ─────────────────────
+  const applyNumerator = React.useCallback(async (tableKey, numeratorId, accountCol, amountCol) => {
     const rows = transformedData[tableKey + '_mapped'] || uploadedFiles[tableKey];
     if (!rows) return null;
     const rules = numeratorRules[numeratorId] || [];
@@ -93,33 +185,46 @@ function AppStateProvider({ children }) {
       const orig = parseFloat(String(row[amountCol] || '0').replace(',', '.')) || 0;
       return {
         ...row,
-        _sign: sign,
-        _signed_amount: sign !== 0 ? orig * sign : orig,
-        _account_col: account,
-        _amount_orig: orig,
+        _sign:            sign,
+        _signed_amount:   sign !== 0 ? orig * sign : orig,
+        _account_col:     account,
+        _amount_orig:     orig,
         _account_category: sign === 1 ? 'Výnos' : sign === -1 ? 'Náklad' : 'Ostatné',
       };
     });
 
     setTransformedData(prev => ({ ...prev, [tableKey + '_numerator']: withSign }));
     const classified = withSign.filter(r => r._sign !== 0).length;
-    addAuditEntry('numerator.apply', `Numerátor ${numeratorId} aplikovaný — ${classified} riadkov klasifikovaných z ${rows.length}`);
-    return withSign;
-  };
+    await addAuditEntry('numerator.apply', `Numerátor ${numeratorId} aplikovaný — ${classified} riadkov klasifikovaných z ${rows.length}`);
 
-  const deduplicateSuppliers = (tableKey, nameCol) => {
+    // Persist sign_value do Supabase (async)
+    const fileId = fileIds[tableKey];
+    if (fileId) {
+      const updates = withSign.map(r => ({
+        accdb:         String(r[accountCol] || ''),
+        sign_value:    r._sign,
+        signed_amount: r._signed_amount,
+      }));
+      dbUpdateGlNumerator(fileId, updates)
+        .then(() => dbLogPipelineRun('ANALYTICS', 'success', classified, null))
+        .catch(e => console.warn('[ETL] numerator persist failed:', e.message));
+    }
+
+    return withSign;
+  }, [uploadedFiles, transformedData, numeratorRules, fileIds, addAuditEntry]);
+
+  // ── deduplicateSuppliers (bez zmeny, lokálne) ─────────────────────────────
+  const deduplicateSuppliers = React.useCallback((tableKey, nameCol) => {
     const rows = uploadedFiles[tableKey];
     if (!rows) return null;
-
     const normalize = (s) => String(s || '').toLowerCase()
       .replace(/[,.\-_]/g, ' ')
       .replace(/\b(sro|s\.r\.o\.|spol|as|a\.s\.|sp|šp|gmbh|ltd|inc)\b/gi, '')
       .replace(/\s+/g, ' ').trim();
-
     const groups = {};
-    rows.forEach((row) => {
+    rows.forEach(row => {
       const rawName = row[nameCol];
-      const norm = normalize(rawName);
+      const norm    = normalize(rawName);
       const existingKey = Object.keys(groups).find(k => {
         const kn = normalize(k);
         return norm.length > 4 && kn.substring(0, 6) === norm.substring(0, 6);
@@ -130,27 +235,50 @@ function AppStateProvider({ children }) {
         groups[rawName] = [rawName];
       }
     });
-
     const duplicates = Object.entries(groups).filter(([, v]) => v.length > 1);
     addAuditEntry('dedup.scan', `Nájdených ${duplicates.length} skupín duplikátov v ${rows.length} záznamoch`);
     return { groups, duplicates, totalDuplicates: rows.length - Object.keys(groups).length };
-  };
+  }, [uploadedFiles, addAuditEntry]);
+
+  // ── addMappingRuleToDb: uloží nové pravidlo do Supabase ───────────────────
+  const addMappingRuleToDb = React.useCallback(async (rulesetId, rule) => {
+    const id = await dbSaveMappingRule(rulesetId, rule);
+    if (id) {
+      await addAuditEntry('mapping.edit', `Pridané pravidlo "${rule.src} ${rule.op} ${rule.tgt}"`);
+    }
+    return id;
+  }, [addAuditEntry]);
+
+  // ── Kombinovaný audit log: reálne akcie + DB záznamy ─────────────────────
+  const combinedAuditLog = React.useMemo(() => {
+    return [...auditLog, ...dbAuditLog];
+  }, [auditLog, dbAuditLog]);
 
   const value = {
+    // State
     uploadedFiles, setUploadedFiles,
+    fileIds,
     activeTable, setActiveTable,
     mappingRules, setMappingRules,
     numeratorRules, setNumeratorRules,
     transformedData, setTransformedData,
-    auditLog, setAuditLog,
+    auditLog: combinedAuditLog,
+    setAuditLog,
+    dbReady,
+    // Actions
     addAuditEntry,
     loadFile,
     applyMapping,
     applyNumerator,
     deduplicateSuppliers,
+    addMappingRuleToDb,
   };
 
-  return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
+  return (
+    <AppStateContext.Provider value={value}>
+      {children}
+    </AppStateContext.Provider>
+  );
 }
 
 const useAppState = () => React.useContext(AppStateContext);
