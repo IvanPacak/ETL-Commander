@@ -9,6 +9,10 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- ✅ NOVÉ: Supabase JS klient (pridané pre Supabase integráciu) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -70,14 +74,49 @@
   /* Lineage graph link */
   .lineage-link { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
   .lineage-link.active { stroke: #1E3A5F; stroke-width: 2; }
+
+  /* DB status indicator */
+  .db-indicator {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #64748b;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    z-index: 50;
+  }
+  .db-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    animation: pulse-dot 2s infinite;
+  }
+  .db-dot.offline { background: #f59e0b; animation: none; }
 </style>
 </head>
 <body>
   <div id="root"></div>
+  <div id="db-status" class="db-indicator">
+    <span class="db-dot" id="db-dot"></span>
+    <span id="db-label">Supabase</span>
+  </div>
 
+  <!-- Poradie načítania je dôležité! -->
   <script type="text/babel" src="components/icons.jsx"></script>
   <script type="text/babel" src="components/ui.jsx"></script>
   <script type="text/babel" src="components/data.jsx"></script>
+
+  <!-- ✅ NOVÉ: Supabase helper (musí byť pred store.jsx) -->
+  <script type="text/babel" src="components/supabase.js"></script>
+
   <script type="text/babel" src="components/store.jsx"></script>
   <script type="text/babel" src="components/sidebar.jsx"></script>
   <script type="text/babel" src="components/section_dashboard.jsx"></script>
@@ -92,5 +131,20 @@
   <script type="text/babel" src="components/section_scheduler.jsx"></script>
   <script type="text/babel" src="components/section_admin.jsx"></script>
   <script type="text/babel" src="app.jsx"></script>
+
+  <!-- DB status indicator updater -->
+  <script>
+    // Aktualizuje DB indikátor po načítaní Supabase klienta
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (window.supabaseClient) {
+          document.getElementById('db-label').textContent = 'Supabase · eu-central-1';
+        } else {
+          document.getElementById('db-dot').classList.add('offline');
+          document.getElementById('db-label').textContent = 'offline mode';
+        }
+      }, 1500);
+    });
+  </script>
 </body>
 </html>
