@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440" />
+<title>ETL Commander</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body, #root { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #F9FAFB;
+    color: #111827;
+    -webkit-font-smoothing: antialiased;
+  }
+  .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background: #2c4a73; }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #3b5d8c; }
+
+  /* Subtle striped placeholder for charts */
+  .stripe-bg {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(30, 58, 95, 0.04) 0,
+      rgba(30, 58, 95, 0.04) 6px,
+      transparent 6px,
+      transparent 12px
+    );
+  }
+
+  /* Crisp focus rings */
+  button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid #1E3A5F;
+    outline-offset: 2px;
+  }
+
+  /* Tooltip-ish */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Animations */
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadein .18s ease-out; }
+
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .55); }
+    50%      { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  }
+  .pulse-dot { animation: pulse-dot 2s infinite; }
+
+  /* Lineage graph link */
+  .lineage-link { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
+  .lineage-link.active { stroke: #1E3A5F; stroke-width: 2; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="components/icons.jsx"></script>
+  <script type="text/babel" src="components/ui.jsx"></script>
+  <script type="text/babel" src="components/data.jsx"></script>
+  <script type="text/babel" src="components/store.jsx"></script>
+  <script type="text/babel" src="components/sidebar.jsx"></script>
+  <script type="text/babel" src="components/section_dashboard.jsx"></script>
+  <script type="text/babel" src="components/section_pipeline.jsx"></script>
+  <script type="text/babel" src="components/section_importer.jsx"></script>
+  <script type="text/babel" src="components/section_mapping.jsx"></script>
+  <script type="text/babel" src="components/section_numerator.jsx"></script>
+  <script type="text/babel" src="components/section_save.jsx"></script>
+  <script type="text/babel" src="components/section_lineage.jsx"></script>
+  <script type="text/babel" src="components/section_governance.jsx"></script>
+  <script type="text/babel" src="components/section_pivot.jsx"></script>
+  <script type="text/babel" src="components/section_scheduler.jsx"></script>
+  <script type="text/babel" src="components/section_admin.jsx"></script>
+  <script type="text/babel" src="app.jsx"></script>
+</body>
+</html>
