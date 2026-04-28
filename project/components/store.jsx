@@ -461,6 +461,7 @@ function AppStateProvider({ children }) {
     auditLog: combinedAuditLog,
     setAuditLog,
     dbStatus,
+    dbReady: dbStatus === 'online',
     // Mapping actions
     addAuditEntry,
     loadFile,

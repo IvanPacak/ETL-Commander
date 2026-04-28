@@ -1,6 +1,6 @@
 // Section 5 — Numerátor Engine
 function SectionNumerator() {
-  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry, activateNumerator } = useAppState();
+  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry, activateNumerator, auditLog } = useAppState();
   const [activeId, setActiveId]           = React.useState('n1');
   const [numResult, setNumResult]         = React.useState(null);
   const [accountColSel, setAccountColSel] = React.useState('ACCDB');
@@ -14,7 +14,7 @@ function SectionNumerator() {
 
   const n     = NUMERATORS.find(x => x.id === activeId);
   const rules = NUMERATOR_RULES[activeId] || [];
-  const audit = NUMERATOR_AUDIT[activeId] || NUMERATOR_AUDIT.n1;
+  const numeratorAuditLog = (auditLog || []).filter(a => a.action && a.action.startsWith('numerator.'));
 
   const uploadedKeys = Object.keys(uploadedFiles);
   const hasUploaded  = uploadedKeys.length > 0;
@@ -256,39 +256,20 @@ function SectionNumerator() {
 
           <div className="grid grid-cols-2 gap-4">
             <Card title="Drift detection" subtitle="Účty mimo aktuálnej definície">
-              <div className="rounded-md bg-amber-50 ring-1 ring-amber-200 p-3 flex gap-3 mb-3">
-                <IcoWarn className="w-5 h-5 text-amber-600 shrink-0 mt-0.5"/>
-                <div className="flex-1">
-                  <div className="text-sm font-semibold text-amber-900">3 účty v produkcii nesedia s aktuálnou definíciou</div>
-                  <div className="text-xs text-amber-800 mt-0.5">Detekované pri nočnom behu o 03:18.</div>
+              <div className="py-8 text-center">
+                <div className="w-10 h-10 mx-auto rounded-xl bg-slate-100 flex items-center justify-center mb-3">
+                  <IcoActivity className="w-5 h-5 text-slate-400"/>
                 </div>
-              </div>
-              <ul className="text-sm divide-y divide-slate-100">
-                {[
-                  { acc: '548900', actual: '+1', expected: '-1', rows: '12' },
-                  { acc: '549100', actual: '+1', expected: '-1', rows: '5' },
-                  { acc: '688100', actual: '-1', expected: '+1', rows: '18' },
-                ].map((d, i) => (
-                  <li key={i} className="flex items-center justify-between py-2">
-                    <div>
-                      <span className="font-mono text-[12.5px] text-slate-800">{d.acc}</span>
-                      <span className="text-[11px] text-slate-500 ml-2">{d.rows} riadkov</span>
-                    </div>
-                    <div className="text-[11.5px] font-mono">
-                      <span className="text-slate-500">prod: </span><span className="text-red-600 font-semibold">{d.actual}</span>
-                      <span className="text-slate-300 mx-1.5">→</span>
-                      <span className="text-slate-500">def: </span><span className="text-emerald-600 font-semibold">{d.expected}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3 flex items-center gap-2">
-                <Button variant="secondary" size="sm">Zobraziť detail</Button>
-                <Button
-                  variant="secondary" size="sm"
-                  icon={<span className="text-sm leading-none">✨</span>}
-                  onClick={() => setShowAiModal(true)}
-                >AI Anomaly Detection</Button>
+                <p className="text-sm text-slate-500 leading-relaxed max-w-[200px] mx-auto">
+                  Drift sa detekuje automaticky po každom pipeline behu.
+                </p>
+                <div className="mt-3">
+                  <Button
+                    variant="secondary" size="sm"
+                    icon={<span className="text-sm leading-none">✨</span>}
+                    onClick={() => setShowAiModal(true)}
+                  >AI Anomaly Detection</Button>
+                </div>
               </div>
             </Card>
 
@@ -316,7 +297,7 @@ function SectionNumerator() {
                   <IcoWarn className="w-4 h-4 text-amber-500 mt-0.5 shrink-0"/>
                   <div>
                     <div className="text-slate-800 font-medium">Zero Out Numerator Rule</div>
-                    <div className="text-xs text-slate-500">12 riadkov bude prepísaných na 0 — manuálna kontrola odporúčaná.</div>
+                    <div className="text-xs text-slate-500">Manuálna kontrola odporúčaná pred aktiváciou.</div>
                   </div>
                 </li>
                 <li className="flex items-start gap-2.5">
@@ -331,16 +312,22 @@ function SectionNumerator() {
           </div>
 
           <Card title="Activation Audit Trail" padded={false}>
-            <ol className="px-5 py-2">
-              {audit.map((a, i) => (
-                <li key={i} className="py-3 border-b border-slate-100 last:border-0 flex items-center gap-3">
-                  <div className="w-14 shrink-0 font-mono text-[11.5px] font-bold text-[#1E3A5F]">{a.v}</div>
-                  <div className="w-32 shrink-0 text-[12px] text-slate-500">{a.date}</div>
-                  <div className="flex-1 text-[13px] text-slate-800 font-medium">{a.user}</div>
-                  <div className="text-[11.5px] font-mono text-slate-500">{a.changes}</div>
-                </li>
-              ))}
-            </ol>
+            {numeratorAuditLog.length > 0 ? (
+              <ol className="px-5 py-2">
+                {numeratorAuditLog.map((a, i) => (
+                  <li key={i} className="py-3 border-b border-slate-100 last:border-0 flex items-start gap-3">
+                    <div className="w-32 shrink-0 font-mono text-[11.5px] text-slate-500 pt-0.5">{a.time}</div>
+                    <div className="flex-1 text-[13px] text-slate-800">
+                      <span className="font-semibold">{a.user}</span>
+                      <span className="ml-2 font-mono text-[11px] text-slate-500">{a.action}</span>
+                    </div>
+                    <div className="text-[11.5px] text-slate-500 max-w-[200px] text-right">{a.detail}</div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <EmptyHint>Zatiaľ nebola vykonaná žiadna aktivácia numerátora. Aktivácia sa zapíše do audit logu.</EmptyHint>
+            )}
           </Card>
         </div>
       </div>

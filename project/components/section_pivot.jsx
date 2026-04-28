@@ -2,7 +2,7 @@
 function SectionPivot() {
   const { uploadedFiles, transformedData, duckDbReady, runPivotQuery, addAuditEntry } = useAppState();
 
-  const [activeId, setActiveId]             = React.useState('p1');
+  const [activeId, setActiveId]             = React.useState(null);
   const [pivotRows, setPivotRows]           = React.useState([]);
   const [pivotCols, setPivotCols]           = React.useState([]);
   const [pivotValues, setPivotValues]       = React.useState([]);
@@ -12,7 +12,7 @@ function SectionPivot() {
   const [isComputing, setIsComputing]       = React.useState(false);
   const [draggedCol, setDraggedCol]         = React.useState(null);
   const [activeDropZone, setActiveDropZone] = React.useState(null);
-  const [savedLayouts, setSavedLayouts]     = React.useState(PIVOT_LIST);
+  const [savedLayouts, setSavedLayouts]     = React.useState([]);
 
   const p = savedLayouts.find(x => x.id === activeId) || savedLayouts[0];
 
@@ -440,58 +440,9 @@ function SectionPivot() {
             </Card>
           )}
 
-          {/* Mock preview for p1 when no real data */}
           {!pivotResult && !hasUploaded && (
-            <Card
-              title="Náhľad"
-              subtitle={p && p.id === 'p1' ? 'P&L by month — Q1 + Apr 2026 (€)' : 'Náhľad výsledku'}
-              padded={false}
-            >
-              {p && p.id === 'p1' ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-500">
-                        <th className="px-4 py-2.5 text-left font-semibold w-44">Department</th>
-                        <th className="px-4 py-2.5 text-left font-semibold w-32">Cost center</th>
-                        {PIVOT_PREVIEW.colsHeader.map(c => (
-                          <th key={c} className={cls('px-4 py-2.5 text-right font-semibold tabular-nums', c.startsWith('Q1') && 'bg-[#1E3A5F]/5 text-[#1E3A5F]')}>{c}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {PIVOT_PREVIEW.rows.map((r, i) => (
-                        <tr key={i} className={cls('border-b border-slate-100 last:border-0', i % 2 ? 'bg-slate-50/30' : '')}>
-                          <td className="px-4 py-2 font-medium text-slate-800">{r.rowVals[0]}</td>
-                          <td className="px-4 py-2 font-mono text-[12px] text-slate-500">{r.rowVals[1]}</td>
-                          {r.cells.map((c, j) => (
-                            <td key={j} className={cls(
-                              'px-4 py-2 text-right font-mono text-[12.5px] tabular-nums',
-                              j === r.cells.length - 1 && 'bg-[#1E3A5F]/5 font-semibold',
-                              c < 0 ? 'text-red-700' : 'text-emerald-700',
-                            )}>{fmt(c)}</td>
-                          ))}
-                        </tr>
-                      ))}
-                      <tr className="bg-slate-100 font-semibold">
-                        <td className="px-4 py-2.5 text-slate-900" colSpan={2}>Σ Total</td>
-                        {PIVOT_PREVIEW.totals.map((t, j) => (
-                          <td key={j} className={cls(
-                            'px-4 py-2.5 text-right font-mono tabular-nums',
-                            j === PIVOT_PREVIEW.totals.length - 1 && 'bg-[#1E3A5F] text-white',
-                            t < 0 ? 'text-red-700' : 'text-emerald-700',
-                            j === PIVOT_PREVIEW.totals.length - 1 && (t < 0 ? '!text-red-200' : '!text-white'),
-                          )}>{fmt(t)}</td>
-                        ))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="p-10">
-                  <ChartPlaceholder height={220} label="náhľad pivot výsledku — kliknite Save layout pre uloženie"/>
-                </div>
-              )}
+            <Card padded>
+              <EmptyHint>Nahrajte dáta v sekcii Importer, nakonfigurujte pivot (Rows + Values) a kliknite „Compute Pivot".</EmptyHint>
             </Card>
           )}
         </div>

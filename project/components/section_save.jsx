@@ -1,11 +1,8 @@
 // Section 6 — Save-to-Schema
 function SectionSave() {
-  const [activeName, setActiveName] = React.useState('analytics');
-  const [mode, setMode] = React.useState('DELTA');
-  const [preload, setPreload] = React.useState('KEYS');
+  const [mode, setMode]           = React.useState('DELTA');
+  const [preload, setPreload]     = React.useState('KEYS');
   const [showAiModal, setShowAiModal] = React.useState(false);
-  const s = SCHEMAS.find(x => x.name === activeName);
-  const cols = SCHEMA_COLUMNS[activeName] || SCHEMA_COLUMNS.analytics;
 
   return (
     <div className="fade-in">
@@ -24,38 +21,21 @@ function SectionSave() {
         }
       />
 
-      <Card title="Cieľové schémy" padded={false} className="mb-6">
-        <Table>
-          <THead cols={[
-            { label: 'Schema' },
-            { label: 'Tabuľky', className: 'w-24' },
-            { label: 'Posledný save', className: 'w-44' },
-            { label: 'Mode', className: 'w-28' },
-            { label: 'Status', className: 'w-24' },
-            { label: '', className: 'w-12' },
-          ]}/>
-          <tbody>
-            {SCHEMAS.map((sc, i) => (
-              <tr key={sc.name}
-                  onClick={() => setActiveName(sc.name)}
-                  className={cls(
-                    'border-b border-slate-100 last:border-0 cursor-pointer transition-colors',
-                    activeName === sc.name ? 'bg-[#1E3A5F]/5 ring-1 ring-inset ring-[#1E3A5F]/20' : (i % 2 ? 'bg-slate-50/30' : 'hover:bg-slate-50/60')
-                  )}>
-                <td className="px-4 py-3 font-mono text-[13px] font-semibold text-slate-800">{sc.name}</td>
-                <td className="px-4 py-3 tabular-nums text-slate-600">{sc.tables}</td>
-                <td className="px-4 py-3 text-slate-600 text-[12.5px]">{sc.last}</td>
-                <td className="px-4 py-3"><Badge tone={sc.mode === 'FULL' ? 'warning' : sc.mode === 'HASH' ? 'info' : 'navy'}>{sc.mode}</Badge></td>
-                <td className="px-4 py-3"><Badge tone="success" dot>OK</Badge></td>
-                <td className="px-4 py-3 text-right text-slate-400"><IcoChevR className="w-4 h-4"/></td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+      <Card padded className="mb-6">
+        <div className="py-8 text-center max-w-lg mx-auto">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-[#1E3A5F]/5 flex items-center justify-center mb-4">
+            <IcoDb className="w-6 h-6 text-[#1E3A5F]/40"/>
+          </div>
+          <h3 className="text-sm font-semibold text-slate-800 mb-2">Cieľové schémy</h3>
+          <p className="text-sm text-slate-500 leading-relaxed">
+            Schémy <span className="font-mono text-slate-700">raw</span>, <span className="font-mono text-slate-700">public</span>, <span className="font-mono text-slate-700">audit</span> a <span className="font-mono text-slate-700">analytics</span> sú konfigurované v Supabase.
+            Detailné zobrazenie tabuliek a stĺpcov bude dostupné po registrácii cez pipeline beh.
+          </p>
+        </div>
       </Card>
 
       <div className="grid grid-cols-3 gap-4">
-        <Card title="Save mode" subtitle={s.name} className="col-span-1">
+        <Card title="Save mode" className="col-span-1">
           <div className="space-y-1.5">
             {['FULL','DELTA','HASH'].map(m => (
               <label key={m} className={cls('flex items-start gap-3 px-3 py-2.5 rounded-md ring-1 cursor-pointer transition-colors', mode === m ? 'ring-[#1E3A5F] bg-[#1E3A5F]/5' : 'ring-slate-200 hover:bg-slate-50')}>
@@ -84,8 +64,8 @@ function SectionSave() {
 
           <div className="mt-5 pt-4 border-t border-slate-100 space-y-2">
             <div className="flex items-center justify-between text-sm"><span className="text-slate-600">Validation status</span><Badge tone="success" dot>Ready</Badge></div>
-            <div className="flex items-center justify-between text-sm"><span className="text-slate-600">Estimated rows</span><span className="font-mono text-slate-800">23 451</span></div>
-            <div className="flex items-center justify-between text-sm"><span className="text-slate-600">Estimated duration</span><span className="font-mono text-slate-800">~3m 50s</span></div>
+            <div className="flex items-center justify-between text-sm"><span className="text-slate-600">Estimated rows</span><span className="font-mono text-slate-800">—</span></div>
+            <div className="flex items-center justify-between text-sm"><span className="text-slate-600">Estimated duration</span><span className="font-mono text-slate-800">—</span></div>
           </div>
 
           <div className="mt-5 flex flex-col gap-2">
@@ -94,40 +74,29 @@ function SectionSave() {
           </div>
         </Card>
 
-        <Card title={`${s.name} — stĺpce`} subtitle={`${cols.length} stĺpcov · primárny kľúč zvýraznený`} className="col-span-2" padded={false}>
-          <Table>
-            <THead cols={[
-              { label: 'Stĺpec', className: 'w-56' },
-              { label: 'Typ', className: 'w-44' },
-              { label: 'PK', className: 'w-16' },
-              { label: 'NN', className: 'w-16' },
-              { label: 'Komentár' },
-            ]}/>
-            <tbody>
-              {cols.map((c, i) => (
-                <tr key={c.name} className={cls('border-b border-slate-100 last:border-0', i % 2 ? 'bg-slate-50/30' : '')}>
-                  <td className="px-4 py-2 font-mono text-[12.5px]">
-                    {c.pk ? <span className="text-[#1E3A5F] font-semibold">🔑 {c.name}</span> : <span className="text-slate-700">{c.name}</span>}
-                  </td>
-                  <td className="px-4 py-2 font-mono text-[12px] text-slate-600">{c.type}</td>
-                  <td className="px-4 py-2 text-center">{c.pk ? <span className="text-[#1E3A5F] font-bold">●</span> : <span className="text-slate-300">—</span>}</td>
-                  <td className="px-4 py-2 text-center">{c.nn ? <span className="text-slate-700 font-bold">●</span> : <span className="text-slate-300">—</span>}</td>
-                  <td className="px-4 py-2 text-[12px] text-slate-500">
-                    {{ 'transaction_id': 'autoincrement, BIGSERIAL',
-                       'period_yyyymm': 'YYYYMM, indexovaný',
-                       'account_no': 'aplikuje sa account_category mapping',
-                       'account_category': 'výsledok z mappingu',
-                       'amount': 'v originálnej mene',
-                       'amount_eur': 'prepočet cez raw.fx_rates',
-                       'sign': 'aplikuje sa P&L Sign Numerator',
-                       'imported_at': 'NOW() pri importe' }[c.name] || ''}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
+        <Card title="analytics — štruktúra" subtitle="Cieľové tabuľky a views" className="col-span-2" padded>
+          <div className="space-y-2">
+            {[
+              { name: 'analytics.gl_transactions',  type: 'TABLE',     note: 'Spracované GL transakcie s mapping kategóriami a numerátor znamienkomi' },
+              { name: 'analytics.gl_summary',       type: 'MAT. VIEW', note: 'Materialized view — súhrn podľa účtov a periódy' },
+              { name: 'analytics.mv_pl_monthly',    type: 'MAT. VIEW', note: 'P&L výsledovka po mesiacoch' },
+              { name: 'analytics.mv_balance_sheet', type: 'MAT. VIEW', note: 'Súvaha — aktíva a pasíva' },
+              { name: 'raw.gl_transactions',        type: 'TABLE',     note: 'Surové GL transakcie z importu (needitované)' },
+              { name: 'raw.fx_rates',               type: 'TABLE',     note: 'Kurzový lístok ECB' },
+            ].map((obj, i) => (
+              <div key={i} className="flex items-start gap-3 px-3 py-2.5 rounded-md ring-1 ring-slate-200 bg-slate-50/40">
+                <div className="flex-1 min-w-0">
+                  <span className="font-mono text-[12.5px] font-semibold text-slate-800">{obj.name}</span>
+                  <span className="text-[11px] text-slate-500 ml-2 leading-relaxed">{obj.note}</span>
+                </div>
+                <Badge tone={obj.type === 'MAT. VIEW' ? 'navy' : obj.type === 'VIEW' ? 'info' : 'neutral'}>{obj.type}</Badge>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11.5px] text-slate-400 mt-4">Schémy sú inicializované v Supabase. Detailné stĺpce sa zobrazia po prvom pipeline behu.</p>
         </Card>
       </div>
+
       {/* AI Modal */}
       {showAiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAiModal(false)}>

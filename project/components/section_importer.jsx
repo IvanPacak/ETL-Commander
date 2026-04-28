@@ -1,20 +1,21 @@
 // Section 3 — Importer
 function SectionImporter() {
-  const { loadFile, uploadedFiles, deduplicateSuppliers } = useAppState();
+  const { loadFile, uploadedFiles, deduplicateSuppliers, dbStatus } = useAppState();
   const [tab, setTab] = React.useState('csv');
   const [drag, setDrag] = React.useState(false);
   const [loadedFile, setLoadedFile] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [dedupResult, setDedupResult] = React.useState(null);
+  const [fileHistory, setFileHistory] = React.useState([]);
   const fileInputRef = React.useRef(null);
 
-  const sourceIcon = (s) => ({
-    'CSV':      <IcoFile className="w-4 h-4"/>,
-    'Excel':    <IcoFile className="w-4 h-4"/>,
-    'HTTP':     <IcoGlobe className="w-4 h-4"/>,
-    'Database': <IcoDb className="w-4 h-4"/>,
-  }[s]);
+  React.useEffect(() => {
+    if (dbStatus !== 'online') return;
+    window.etlDB.file.getAll()
+      .then(files => { if (files) setFileHistory(files); })
+      .catch(() => {});
+  }, [dbStatus, loadedFile]);
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -100,7 +101,7 @@ function SectionImporter() {
     <div className="fade-in">
       <PageHeader
         title="Importer"
-        subtitle="Definované zdroje dát a schedule pre ich pripojenie"
+        subtitle="Nahrávanie súborov a konfigurácia zdrojov dát"
         actions={<Button icon={<IcoPlus className="w-4 h-4"/>}>Nový import</Button>}
       />
 
@@ -191,18 +192,21 @@ function SectionImporter() {
           {tab === 'db' && (
             <div className="grid grid-cols-3 gap-4">
               <Card title="Connection profile" className="col-span-2" padded>
-                <div className="space-y-2">
-                  {CONNECTION_PROFILES.map((c, i) => (
-                    <label key={i} className={cls('flex items-center gap-3 px-3 py-2.5 rounded-md ring-1 cursor-pointer transition-colors', i === 0 ? 'ring-[#1E3A5F] bg-[#1E3A5F]/5' : 'ring-slate-200 hover:bg-slate-50')}>
-                      <input type="radio" name="conn" defaultChecked={i === 0}/>
-                      <IcoServer className="w-4 h-4 text-slate-500"/>
-                      <div className="flex-1">
-                        <div className="text-sm font-semibold text-slate-800">{c.name}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">{c.driver} · {c.host}:{c.port} · {c.db}</div>
-                      </div>
-                      <Badge tone="success" dot>{c.status}</Badge>
-                    </label>
-                  ))}
+                <div className="space-y-3">
+                  <div className="rounded-md ring-1 ring-[#1E3A5F]/20 bg-[#1E3A5F]/[3%] p-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <IcoServer className="w-4 h-4 text-[#1E3A5F] shrink-0"/>
+                      <span className="text-sm font-semibold text-slate-900">SUPABASE_PROD</span>
+                      <Badge tone="navy">aktívny</Badge>
+                    </div>
+                    <div className="text-[11.5px] font-mono text-slate-500">
+                      PostgreSQL 17 · clnkarllsszrlobvxtdw.supabase.co · etl_commander
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Priame DB pripojenia (AS400, fileserver SMB) budú konfigurovateľné v <span className="font-medium text-slate-700">Fáze 2</span> — Pipeline orchestrácia.
+                    Momentálne sú dáta importované manuálne cez CSV/Excel upload.
+                  </p>
                 </div>
               </Card>
               <Card title="Query / table" padded>
@@ -304,36 +308,50 @@ function SectionImporter() {
         </Card>
       )}
 
-      <Card title="Definované importy" subtitle={`${IMPORTS.length} aktívnych zdrojov`} padded={false}>
-        <Table>
-          <THead cols={[
-            { label: 'Názov' },
-            { label: 'Zdroj', className: 'w-32' },
-            { label: 'Detail / URL' },
-            { label: 'Frekvencia', className: 'w-36' },
-            { label: 'Posledný import', className: 'w-44' },
-            { label: 'Status', className: 'w-24' },
-          ]}/>
-          <tbody>
-            {IMPORTS.map((it, i) => (
-              <tr key={i} className={cls('border-b border-slate-100 last:border-0 hover:bg-slate-50/60', i % 2 ? 'bg-slate-50/30' : '')}>
-                <td className="px-4 py-3 font-medium text-slate-800">{it.name}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center gap-1.5 text-slate-700"><span className="text-slate-400">{sourceIcon(it.source)}</span>{it.source}</span>
-                </td>
-                <td className="px-4 py-3 font-mono text-[11.5px] text-slate-500 truncate max-w-[280px]">{it.detail}</td>
-                <td className="px-4 py-3 text-[12.5px] text-slate-600">{it.freq}</td>
-                <td className="px-4 py-3 text-[12.5px] text-slate-600">
-                  <div>{it.last}</div>
-                  <div className="text-[11px] text-slate-400">{it.count}</div>
-                </td>
-                <td className="px-4 py-3">
-                  {it.status === 'success' ? <Badge tone="success" dot>OK</Badge> : <Badge tone="warning" dot>slow</Badge>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+      {/* Imported files history */}
+      <Card
+        title="História importov"
+        subtitle={fileHistory.length > 0 ? `${fileHistory.length} súborov` : 'Zatiaľ žiadne importy'}
+        padded={false}
+      >
+        {fileHistory.length > 0 ? (
+          <Table>
+            <THead cols={[
+              { label: 'Súbor' },
+              { label: 'Typ', className: 'w-24' },
+              { label: 'Riadky', className: 'w-28' },
+              { label: 'Stĺpce', className: 'w-24' },
+              { label: 'Nahraný', className: 'w-44' },
+            ]}/>
+            <tbody>
+              {fileHistory.map((f, i) => (
+                <tr key={f.id || i} className={cls('border-b border-slate-100 last:border-0 hover:bg-slate-50/60', i % 2 ? 'bg-slate-50/30' : '')}>
+                  <td className="px-4 py-3 font-medium text-slate-800">{f.file_name}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone="navy">{(f.file_type || '').toUpperCase()}</Badge>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[12px] text-slate-600 tabular-nums">
+                    {f.row_count ? f.row_count.toLocaleString('sk-SK') : '—'}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[12px] text-slate-600 tabular-nums">
+                    {f.col_count || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-[12.5px] text-slate-600">
+                    {f.uploaded_at
+                      ? new Date(f.uploaded_at).toLocaleString('sk-SK', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : (
+          <div className="py-10 text-center">
+            <p className="text-sm text-slate-400">
+              História importov sa zobrazí po nahraní prvého súboru. Použite záložky CSV alebo Excel vyššie.
+            </p>
+          </div>
+        )}
       </Card>
     </div>
   );

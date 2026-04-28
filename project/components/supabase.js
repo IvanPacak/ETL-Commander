@@ -151,6 +151,23 @@ window.etlDB = {
       var row = Array.isArray(res) ? res[0] : res;
       return row ? row.id : null;
     },
+    getAll: function() {
+      return sbFetch('imported_files?order=uploaded_at.desc');
+    },
+    insert: async function(name, rowCount, columns) {
+      var res = await sbFetch('imported_files', {
+        method: 'POST',
+        prefer: 'return=representation',
+        body: {
+          file_name: name,
+          file_type: 'xlsx',
+          row_count: rowCount,
+          col_count: Array.isArray(columns) ? columns.length : (Number(columns) || 0),
+        },
+      });
+      var row = Array.isArray(res) ? res[0] : res;
+      return row ? row.id : null;
+    },
   },
 
   gl: {
@@ -265,6 +282,26 @@ window.etlSeedIfEmpty = async function() {
   } catch (e) {
     console.warn('[ETL Seed] Failed:', e.message);
   }
+};
+
+// ─── etlDB.files — plural alias ───────────────────────────────
+window.etlDB.files = window.etlDB.file;
+
+// ─── etlResetDatabase — vymaže všetky záznamy a znovu seeduje ─
+window.etlResetDatabase = async function() {
+  var ZERO = '00000000-0000-0000-0000-000000000000';
+  var tables = [
+    'raw_gl_transactions', 'imported_files', 'pipeline_runs',
+    'mapping_rules', 'mapping_rulesets',
+    'numerator_rules', 'numerator_rulesets',
+    'action_log',
+  ];
+  for (var i = 0; i < tables.length; i++) {
+    await sbFetch(tables[i] + '?id=neq.' + ZERO, { method: 'DELETE' })
+      .catch(function() {});
+  }
+  await window.etlSeedIfEmpty();
+  console.log('[ETL Reset] Database reset complete ✓');
 };
 
 // ─── Backward-compat aliases (používané v store.jsx a iných miestach) ─────

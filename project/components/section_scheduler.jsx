@@ -1,111 +1,60 @@
 // Section 10 — Scheduler
 function SectionScheduler() {
-  const [selected, setSelected] = React.useState(0);
-  const j = SCHEDULED[selected];
-  const history = [
-    { time: 'dnes 23:00',     status: 'success', dur: '4m 12s', rows: '1,247,832' },
-    { time: 'včera 23:00',    status: 'success', dur: '4m 08s', rows: '1,243,118' },
-    { time: '25.4.2026 23:00',status: 'success', dur: '4m 19s', rows: '1,239,801' },
-    { time: '24.4.2026 23:00',status: 'failed',  dur: '0m 47s', rows: '— (timeout)' },
-    { time: '23.4.2026 23:00',status: 'success', dur: '4m 11s', rows: '1,244,920' },
-    { time: '22.4.2026 23:00',status: 'success', dur: '4m 03s', rows: '1,240,118' },
-  ];
-
   return (
     <div className="fade-in">
       <PageHeader
         title="Scheduler"
         subtitle="Cron-based plánovač pre importy, pipeline behy a údržbu"
-        actions={<Button icon={<IcoPlus className="w-4 h-4"/>}>Nový scheduled job</Button>}
+        actions={
+          <Button icon={<IcoPlus className="w-4 h-4"/>} disabled title="Dostupné v Fáze 2">
+            Nový scheduled job
+          </Button>
+        }
       />
 
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-8">
           <Card title="Naplánované úlohy" padded={false}>
-            <Table>
-              <THead cols={[
-                { label: 'Job name' },
-                { label: 'Cron', className: 'w-36' },
-                { label: 'Last run', className: 'w-44' },
-                { label: 'Status', className: 'w-24' },
-                { label: '', className: 'w-12' },
-              ]}/>
-              <tbody>
-                {SCHEDULED.map((s, i) => (
-                  <tr key={i}
-                      onClick={() => setSelected(i)}
-                      className={cls(
-                        'border-b border-slate-100 last:border-0 cursor-pointer transition-colors',
-                        selected === i ? 'bg-[#1E3A5F]/5' : (i % 2 ? 'bg-slate-50/30 hover:bg-slate-50' : 'hover:bg-slate-50')
-                      )}>
-                    <td className="px-4 py-3">
-                      <div className="text-[13px] font-medium text-slate-800">{s.name}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">{s.desc}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-[11.5px] text-slate-700">{s.cron}</div>
-                      <div className="text-[11px] text-slate-500">{s.cronLabel}</div>
-                    </td>
-                    <td className="px-4 py-3 text-[12.5px] text-slate-700">{s.last}</td>
-                    <td className="px-4 py-3"><Badge tone="success" dot>OK</Badge></td>
-                    <td className="px-4 py-3 text-right text-slate-400"><IcoChevR className="w-4 h-4"/></td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <div className="py-16 text-center">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-[#1E3A5F]/8 flex items-center justify-center mb-5">
+                <IcoRefresh className="w-7 h-7 text-[#1E3A5F]/50"/>
+              </div>
+              <h3 className="text-base font-semibold text-slate-800 mb-2">Plánované úlohy — Fáza 2</h3>
+              <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                Automatické behy budú dostupné v ďalšej verzii
+                (<span className="font-medium text-slate-700">Fáza 2 — Pipeline orchestrácia</span>).
+                Tu budete konfigurovať cron joby pre importy, pipeline behy a údržbu.
+              </p>
+              <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-md bg-slate-50 ring-1 ring-slate-200 text-xs text-slate-600 font-mono">
+                <IcoCheck className="w-3.5 h-3.5 text-emerald-500"/>
+                Plánovaný v Q3 2026
+              </div>
+            </div>
           </Card>
         </div>
 
         <div className="col-span-4 space-y-4">
-          <Card title={j.name} subtitle="Detail úlohy">
-            <div className="space-y-2.5 text-sm">
-              <div className="flex justify-between"><span className="text-slate-500">Cron</span><span className="font-mono text-slate-800">{j.cron}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Frekvencia</span><span className="text-slate-800">{j.cronLabel}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Posledný beh</span><span className="text-slate-800">{j.last}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Status</span><Badge tone="success" dot>active</Badge></div>
-              <div className="flex justify-between"><span className="text-slate-500">Owner</span><span className="text-slate-800">Peter Novák</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Notifikácia</span><span className="text-slate-800">e-mail pri zlyhaní</span></div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2">
-              <Button variant="secondary" size="sm" icon={<IcoPlay className="w-3.5 h-3.5"/>}>Spustiť teraz</Button>
-              <Button variant="ghost" size="sm">Pozastaviť</Button>
-            </div>
-          </Card>
-
-          <Card title="Parametre">
-            <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-[11.5px] font-mono overflow-x-auto">
-{`{
-  "phase":     "RAW",
-  "sources":   ["AS400", "ECB", "FILESERVER"],
-  "timeout":   "30m",
-  "retry":     2,
-  "notify_on": ["fail", "slow"]
-}`}
-            </pre>
+          <Card title="Plánované cron vzory" padded>
+            <ul className="space-y-2.5 text-sm text-slate-600">
+              {[
+                { cron: '0 23 * * *',  label: 'Denný RAW refresh',       hint: 'denne 23:00' },
+                { cron: '0 6 * * *',   label: 'ECB FX import',           hint: 'denne 06:00' },
+                { cron: '0 2 * * 0',   label: 'Týždenný full ANALYTICS', hint: 'nedeľa 02:00' },
+                { cron: '0 0 1 * *',   label: 'Mesačný snapshot',        hint: '1. v mesiaci' },
+              ].map((j, i) => (
+                <li key={i} className="flex items-start gap-2.5 py-2 border-b border-slate-100 last:border-0">
+                  <div className="flex-1">
+                    <div className="text-[13px] font-medium text-slate-800">{j.label}</div>
+                    <div className="text-[11px] text-slate-400 font-mono mt-0.5">{j.hint}</div>
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">{j.cron}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11.5px] text-slate-400 mt-3">Budú nakonfigurované po implementácii Fázy 2.</p>
           </Card>
         </div>
       </div>
-
-      <Card title="História behov tejto úlohy" className="mt-4" padded={false}>
-        <Table>
-          <THead cols={[
-            { label: 'Timestamp', className: 'w-56' },
-            { label: 'Status', className: 'w-32' },
-            { label: 'Trvanie', className: 'w-28' },
-            { label: 'Riadky' },
-          ]}/>
-          <tbody>
-            {history.map((h, i) => (
-              <tr key={i} className={cls('border-b border-slate-100 last:border-0', i % 2 ? 'bg-slate-50/30' : '')}>
-                <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700">{h.time}</td>
-                <td className="px-4 py-2.5">{h.status === 'success' ? <Badge tone="success" dot>success</Badge> : <Badge tone="error" dot>failed</Badge>}</td>
-                <td className="px-4 py-2.5 font-mono text-[12px] text-slate-600 tabular-nums">{h.dur}</td>
-                <td className="px-4 py-2.5 font-mono text-[12px] text-slate-600 tabular-nums">{h.rows}</td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </Card>
     </div>
   );
 }

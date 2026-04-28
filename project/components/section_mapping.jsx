@@ -3,7 +3,7 @@ function SectionMapping() {
   const {
     uploadedFiles, applyMapping, mappingRules, setMappingRules, addAuditEntry,
     mappingsList, mappingVersions, createMapping, deleteRule, updateRule,
-    addMappingRule, activateMappingRuleset,
+    addMappingRule, activateMappingRuleset, auditLog,
   } = useAppState();
 
   const [activeId, setActiveId]           = React.useState('m1');
@@ -31,6 +31,7 @@ function SectionMapping() {
   const m              = (mappingsList || []).find(x => x.id === activeId);
   const rules          = mappingRules[activeId] || [];
   const currentVersion = (mappingVersions || {})[activeId] || 1;
+  const mappingAuditLog = (auditLog || []).filter(a => a.action && a.action.startsWith('mapping.'));
 
   const uploadedKeys = Object.keys(uploadedFiles);
   const hasUploaded  = uploadedKeys.length > 0;
@@ -285,7 +286,7 @@ function SectionMapping() {
                 tabs={[
                   { id: 'rules', label: 'Pravidlá', count: rules.length },
                   { id: 'keys',  label: 'KEY columns' },
-                  { id: 'audit', label: 'Audit log', count: MAPPING_AUDIT.length },
+                  { id: 'audit', label: 'Audit log', count: mappingAuditLog.length },
                 ]}
                 value={tab}
                 onChange={setTab}
@@ -456,18 +457,22 @@ function SectionMapping() {
 
             {tab === 'audit' && (
               <ol className="px-5 py-2">
-                {MAPPING_AUDIT.map((a, i) => (
-                  <li key={i} className="py-3 border-b border-slate-100 last:border-0 flex items-start gap-3">
-                    <div className="w-32 shrink-0 font-mono text-[11.5px] text-slate-500 pt-0.5">{a.time}</div>
-                    <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                      <IcoEdit className="w-3.5 h-3.5 text-slate-500"/>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] text-slate-800"><span className="font-semibold">{a.user}</span> · <span className="font-mono text-slate-500">{a.action}</span></div>
-                      <div className="text-[12px] text-slate-500 mt-0.5">{a.detail}</div>
-                    </div>
-                  </li>
-                ))}
+                {mappingAuditLog.length === 0 ? (
+                  <li><EmptyHint>Zatiaľ žiadne akcie na mappingoch. Akcie sa zapíšu po spustení mappingu alebo úprave pravidla.</EmptyHint></li>
+                ) : (
+                  mappingAuditLog.map((a, i) => (
+                    <li key={i} className="py-3 border-b border-slate-100 last:border-0 flex items-start gap-3">
+                      <div className="w-32 shrink-0 font-mono text-[11.5px] text-slate-500 pt-0.5">{a.time}</div>
+                      <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                        <IcoEdit className="w-3.5 h-3.5 text-slate-500"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] text-slate-800"><span className="font-semibold">{a.user}</span> · <span className="font-mono text-slate-500">{a.action}</span></div>
+                        <div className="text-[12px] text-slate-500 mt-0.5">{a.detail}</div>
+                      </div>
+                    </li>
+                  ))
+                )}
               </ol>
             )}
           </Card>
