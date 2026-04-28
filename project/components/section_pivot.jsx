@@ -1,21 +1,29 @@
-// Section 9 — Pivot Reports
+// Section 9 — Pivot Reports (DuckDB-powered)
 function SectionPivot() {
-  const { uploadedFiles, transformedData } = useAppState();
-  const [activeId, setActiveId] = React.useState('p1');
-  const [pivotRows, setPivotRows] = React.useState([]);
-  const [pivotValues, setPivotValues] = React.useState([]);
-  const [pivotResult, setPivotResult] = React.useState(null);
-  const [availableCols, setAvailableCols] = React.useState([]);
-  const p = PIVOT_LIST.find(x => x.id === activeId);
+  const { uploadedFiles, transformedData, duckDbReady, runPivotQuery, addAuditEntry } = useAppState();
+
+  const [activeId, setActiveId]             = React.useState('p1');
+  const [pivotRows, setPivotRows]           = React.useState([]);
+  const [pivotCols, setPivotCols]           = React.useState([]);
+  const [pivotValues, setPivotValues]       = React.useState([]);
+  const [pivotFilters, setPivotFilters]     = React.useState([]);
+  const [pivotResult, setPivotResult]       = React.useState(null);
+  const [availableCols, setAvailableCols]   = React.useState([]);
+  const [isComputing, setIsComputing]       = React.useState(false);
+  const [draggedCol, setDraggedCol]         = React.useState(null);
+  const [activeDropZone, setActiveDropZone] = React.useState(null);
+  const [savedLayouts, setSavedLayouts]     = React.useState(PIVOT_LIST);
+
+  const p = savedLayouts.find(x => x.id === activeId) || savedLayouts[0];
 
   const fmt = (n) => {
     const sign = n < 0 ? '-' : '';
-    const abs = Math.abs(n);
-    return sign + abs.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return sign + Math.abs(n).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const hasUploaded = Object.keys(uploadedFiles).length > 0 || Object.keys(transformedData).length > 0;
 
+  // Sync available columns from uploaded/transformed data
   React.useEffect(() => {
     const allData =
       Object.values(transformedData).find(d => d.length > 0) ||
@@ -27,46 +35,142 @@ function SectionPivot() {
     }
   }, [uploadedFiles, transformedData]);
 
+  // ── Drag & Drop ───────────────────────────────────────────────────────────
+  const removeFromAllZones = (col) => {
+    setPivotRows(r => r.filter(c => c !== col));
+    setPivotCols(c => c.filter(c2 => c2 !== col));
+    setPivotValues(v => v.filter(c => c !== col));
+    setPivotFilters(f => f.filter(c => c !== col));
+  };
+
+  const addToZone = (zone, col) => {
+    removeFromAllZones(col);
+    if (zone === 'rows')    setPivotRows(r => [...r, col]);
+    if (zone === 'cols')    setPivotCols(c => [...c, col]);
+    if (zone === 'values')  setPivotValues(v => [...v, col]);
+    if (zone === 'filters') setPivotFilters(f => [...f, col]);
+    setPivotResult(null);
+  };
+
+  const handleDrop = (zone) => (e) => {
+    e.preventDefault();
+    if (!draggedCol) return;
+    addToZone(zone, draggedCol);
+    setDraggedCol(null);
+    setActiveDropZone(null);
+  };
+
+  // ── Click to add (1st click → Rows, 2nd → Values, 3rd → remove) ──────────
   const handleColClick = (col) => {
     if (pivotRows.includes(col)) {
       setPivotRows(r => r.filter(c => c !== col));
     } else if (pivotValues.includes(col)) {
       setPivotValues(v => v.filter(c => c !== col));
+    } else if (pivotCols.includes(col)) {
+      setPivotCols(c => c.filter(c2 => c2 !== col));
+    } else if (pivotFilters.includes(col)) {
+      setPivotFilters(f => f.filter(c => c !== col));
+    } else if (pivotRows.length === 0) {
+      setPivotRows([col]);
+    } else if (pivotValues.length === 0) {
+      setPivotValues([col]);
     } else {
-      if (pivotRows.length === 0) {
-        setPivotRows([col]);
-      } else if (pivotValues.length === 0) {
-        setPivotValues([col]);
-      } else {
-        setPivotRows(r => [...r, col]);
-      }
+      setPivotRows(r => [...r, col]);
     }
     setPivotResult(null);
   };
 
-  const computePivot = () => {
-    const allData =
-      Object.values(transformedData).find(d => d.length > 0) ||
-      Object.values(uploadedFiles).find(d => d.length > 0);
-    if (!allData || pivotValues.length === 0 || pivotRows.length === 0) return;
-
-    const valueCol = pivotValues[0];
-    const rowDim = pivotRows[0];
-
-    const agg = {};
-    allData.forEach(row => {
-      const key = String(row[rowDim] ?? 'N/A');
-      const raw = String(row[valueCol] ?? '0').replace(',', '.');
-      const val = parseFloat(raw) || 0;
-      agg[key] = (agg[key] || 0) + val;
-    });
-
-    const sorted = Object.entries(agg)
-      .map(([key, val]) => ({ key, val }))
-      .sort((a, b) => Math.abs(b.val) - Math.abs(a.val));
-
-    setPivotResult(sorted);
+  // ── Compute ───────────────────────────────────────────────────────────────
+  const handleComputePivot = async () => {
+    if (pivotRows.length === 0 || pivotValues.length === 0) return;
+    setIsComputing(true);
+    setPivotResult(null);
+    const tableKey = Object.keys(uploadedFiles)[0] || '';
+    try {
+      const result = await runPivotQuery(tableKey, pivotRows[0], pivotValues, pivotFilters);
+      setPivotResult(result);
+      if (result) {
+        addAuditEntry('pivot.compute',
+          `${pivotRows[0]} × ${pivotValues.join(', ')} — ${result.length} skupín`);
+      }
+    } catch (e) {
+      console.error('[ETL] pivot compute error:', e);
+    } finally {
+      setIsComputing(false);
+    }
   };
+
+  // ── Export Excel ──────────────────────────────────────────────────────────
+  const handleExportExcel = () => {
+    if (!pivotResult || pivotResult.length === 0) return;
+    const pivotTotal = pivotResult.reduce((s, r) => s + r.val, 0);
+    const wsData = [
+      ['Kategória', 'Suma EUR', '% z celku'],
+      ...pivotResult.map(r => [
+        r.key,
+        r.val,
+        pivotTotal !== 0 ? Math.abs(r.val / pivotTotal * 100).toFixed(1) + '%' : '0%',
+      ]),
+      ['TOTAL', pivotTotal, '100%'],
+    ];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [{ wch: 35 }, { wch: 18 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, (pivotRows[0] || 'Pivot').slice(0, 31));
+    const filename = `ETL_Pivot_${(pivotRows[0] || 'pivot').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    addAuditEntry('pivot.export', `Excel export: ${filename}`);
+  };
+
+  // ── Export PDF ────────────────────────────────────────────────────────────
+  const handleExportPdf = () => {
+    if (!pivotResult) return;
+    const printContent = document.getElementById('pivot-result-printable');
+    if (!printContent) return;
+    const printHtml = `
+      <html><head><title>ETL Commander — Pivot Report</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #1E3A5F; color: white; padding: 8px; text-align: left; }
+        td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+        .positive { color: #059669; } .negative { color: #dc2626; }
+        .total-row { background: #f8fafc; font-weight: bold; }
+        h2 { color: #1E3A5F; }
+      </style></head>
+      <body>
+        <h2>ETL Commander — Pivot Report</h2>
+        <p>Generované: ${new Date().toLocaleString('sk-SK')} | Dimenzia: ${pivotRows[0] || '—'} | Hodnota: ${pivotValues[0] || '—'}</p>
+        ${printContent.innerHTML}
+      </body></html>`;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+    printWindow.print();
+    addAuditEntry('pivot.export', `PDF export: ${pivotRows[0] || '—'} × ${pivotValues[0] || '—'}`);
+  };
+
+  // ── Save layout ───────────────────────────────────────────────────────────
+  const handleSaveLayout = () => {
+    if (pivotRows.length === 0) return;
+    const name = prompt('Názov layoutu:', `${pivotRows[0]} × ${pivotValues[0] || '—'}`);
+    if (!name) return;
+    const newLayout = {
+      id: 'p' + Date.now(),
+      name,
+      rows:    [...pivotRows],
+      cols:    [...pivotCols],
+      values:  [...pivotValues],
+      filters: [...pivotFilters],
+    };
+    setSavedLayouts(prev => [...prev, newLayout]);
+    addAuditEntry('pivot.save', `Uložený layout: ${name}`);
+  };
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  const LoadingSpinner = () => (
+    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+  );
 
   const Chip = ({ children, tone = 'navy', onRemove }) => (
     <span className={cls(
@@ -85,11 +189,28 @@ function SectionPivot() {
     </span>
   );
 
-  const dropZone = (label, items, tone, hint, onRemove) => (
-    <div className="bg-slate-50/60 rounded-md ring-1 ring-slate-200 p-3 min-h-[88px]">
+  const DropZone = ({ zone, label, items, tone, hint, onRemove }) => (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setActiveDropZone(zone); }}
+      onDragLeave={() => setActiveDropZone(null)}
+      onDrop={handleDrop(zone)}
+      className={cls(
+        'rounded-md ring-1 p-3 min-h-[88px] transition-all',
+        activeDropZone === zone
+          ? 'ring-2 ring-[#1E3A5F] bg-[#1E3A5F]/5'
+          : 'bg-slate-50/60 ring-slate-200',
+      )}
+    >
       <div className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-500 mb-2">{label}</div>
       <div className="flex flex-wrap gap-1.5">
-        {items.length === 0 && <span className="text-[11px] text-slate-400 italic">{hint}</span>}
+        {items.length === 0 && (
+          <span className={cls(
+            'text-[11px] italic',
+            activeDropZone === zone ? 'text-[#1E3A5F]' : 'text-slate-400',
+          )}>
+            {activeDropZone === zone ? 'Pustite sem…' : hint}
+          </span>
+        )}
         {items.map((it, i) => (
           <Chip key={i} tone={tone} onRemove={() => onRemove(it)}>{it}</Chip>
         ))}
@@ -98,7 +219,7 @@ function SectionPivot() {
   );
 
   const pivotTotal = pivotResult ? pivotResult.reduce((s, r) => s + r.val, 0) : 0;
-  const pivotMax = pivotResult ? Math.max(...pivotResult.map(r => Math.abs(r.val))) : 1;
+  const pivotMax   = pivotResult ? Math.max(...pivotResult.map(r => Math.abs(r.val)), 1) : 1;
 
   return (
     <div className="fade-in">
@@ -107,134 +228,171 @@ function SectionPivot() {
         subtitle="Builder a uložené pivot výkazy nad analytickou vrstvou"
         actions={
           <>
-            <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>}>Export Excel</Button>
-            <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>}>Export PDF</Button>
-            <Button variant="primary" size="sm" icon={<IcoCheck className="w-3.5 h-3.5"/>}>Save layout</Button>
+            {duckDbReady && <Badge tone="success" dot>DuckDB</Badge>}
+            <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>}
+              onClick={handleExportExcel} disabled={!pivotResult}>Export Excel</Button>
+            <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>}
+              onClick={handleExportPdf} disabled={!pivotResult}>Export PDF</Button>
+            <Button variant="primary" size="sm" icon={<IcoCheck className="w-3.5 h-3.5"/>}
+              onClick={handleSaveLayout} disabled={pivotRows.length === 0}>Save layout</Button>
           </>
         }
       />
 
       <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-3">
+        {/* Left: saved layouts + dimensions */}
+        <div className="col-span-3 space-y-4">
           <Card title="Uložené pivoty" padded={false}>
             <ul className="py-1">
-              {PIVOT_LIST.map(pl => (
+              {savedLayouts.map(pl => (
                 <li key={pl.id}>
                   <button
-                    onClick={() => { setActiveId(pl.id); setPivotResult(null); }}
+                    onClick={() => {
+                      setActiveId(pl.id);
+                      setPivotRows(pl.rows || []);
+                      setPivotCols(pl.cols || []);
+                      setPivotValues(pl.values || []);
+                      setPivotFilters(pl.filters || []);
+                      setPivotResult(null);
+                    }}
                     className={cls(
                       'w-full text-left px-3 py-2.5 border-l-2 transition-colors',
                       activeId === pl.id ? 'bg-[#1E3A5F]/5 border-[#1E3A5F]' : 'border-transparent hover:bg-slate-50'
                     )}
                   >
                     <div className="text-[13px] font-medium text-slate-800">{pl.name}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">{pl.rows.length} riad. dim · {pl.cols.length} stĺp. dim</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      {(pl.rows || []).length} riad. dim · {(pl.cols || []).length} stĺp. dim
+                    </div>
                   </button>
                 </li>
               ))}
             </ul>
           </Card>
 
-          <Card title="Dimensions" className="mt-4" padded>
+          <Card title="Dimensions" padded>
             <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">
               {hasUploaded ? 'Polia z nahraných dát' : 'Dostupné polia'}
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               {(hasUploaded && availableCols.length > 0 ? availableCols : [
-                'Department','Cost Center','Account','Account category','Month','Quarter',
-                'Year','Product Group','Product','Supplier','VAT direction','Currency','Source system'
+                'Department', 'Cost Center', 'Account', 'Account category', 'Month', 'Quarter',
+                'Year', 'Product Group', 'Product', 'Supplier', 'VAT direction', 'Currency', 'Source system',
               ]).map((d, i) => {
-                const inRows = pivotRows.includes(d);
-                const inVals = pivotValues.includes(d);
+                const inRows    = pivotRows.includes(d);
+                const inVals    = pivotValues.includes(d);
+                const inCols    = pivotCols.includes(d);
+                const inFilters = pivotFilters.includes(d);
+                const isDragging = draggedCol === d;
                 return (
                   <div
                     key={i}
+                    draggable={hasUploaded}
+                    onDragStart={(e) => { setDraggedCol(d); e.dataTransfer.effectAllowed = 'move'; }}
+                    onDragEnd={() => { setDraggedCol(null); setActiveDropZone(null); }}
                     onClick={() => hasUploaded ? handleColClick(d) : null}
                     className={cls(
-                      'px-2 py-1.5 rounded text-[12px] font-mono ring-1 text-slate-700 transition-colors',
-                      inRows && 'bg-[#1E3A5F]/10 ring-[#1E3A5F]/30 text-[#1E3A5F]',
-                      inVals && 'bg-emerald-50 ring-emerald-200 text-emerald-700',
-                      !inRows && !inVals && 'bg-slate-50 ring-slate-200 hover:bg-white',
-                      hasUploaded ? 'cursor-pointer' : 'cursor-default',
+                      'px-2 py-1.5 rounded text-[12px] font-mono ring-1 text-slate-700 transition-all select-none',
+                      inRows    && 'bg-[#1E3A5F]/10 ring-[#1E3A5F]/30 text-[#1E3A5F]',
+                      inVals    && 'bg-emerald-50 ring-emerald-200 text-emerald-700',
+                      inCols    && 'bg-sky-50 ring-sky-200 text-sky-700',
+                      inFilters && 'bg-amber-50 ring-amber-200 text-amber-700',
+                      !inRows && !inVals && !inCols && !inFilters && 'bg-slate-50 ring-slate-200 hover:bg-white',
+                      hasUploaded ? 'cursor-grab active:cursor-grabbing' : 'cursor-default',
+                      isDragging && 'opacity-40 scale-95',
                     )}
                   >{d}</div>
                 );
               })}
             </div>
             {hasUploaded && (
-              <p className="text-[10.5px] text-slate-400 mt-2">Kliknite na pole → pridá sa do Rows (alebo Values ak Rows je obsadený)</p>
+              <p className="text-[10.5px] text-slate-400 mt-2">
+                Kliknite alebo pretiahnite pole do zóny
+              </p>
             )}
           </Card>
         </div>
 
+        {/* Right: builder + result */}
         <div className="col-span-9 space-y-4">
-          <Card title={p.name} subtitle="Drag & drop konfigurácia">
+          <Card title={p ? p.name : 'Pivot Builder'} subtitle="Drag & drop alebo kliknite na pole vľavo">
             <div className="grid grid-cols-2 gap-3">
-              {dropZone('Rows',
-                hasUploaded ? pivotRows : p.rows,
-                'navy', 'Kliknite na pole vľavo',
-                col => setPivotRows(r => r.filter(c => c !== col))
-              )}
-              {dropZone('Columns',
-                hasUploaded ? [] : p.cols,
-                'sky', 'Pretiahnite sem dimenzie',
-                () => {}
-              )}
-              {dropZone('Values',
-                hasUploaded ? pivotValues : p.values,
-                'green', 'Kliknite na číselné pole vľavo',
-                col => setPivotValues(v => v.filter(c => c !== col))
-              )}
-              {dropZone('Filters',
-                hasUploaded ? [] : p.filters,
-                'amber', 'Pretiahnite sem filtre',
-                () => {}
-              )}
+              <DropZone
+                zone="rows" label="Rows" tone="navy"
+                items={hasUploaded ? pivotRows : (p ? (p.rows || []) : [])}
+                hint="Pretiahnite dimenziu sem"
+                onRemove={col => { setPivotRows(r => r.filter(c => c !== col)); setPivotResult(null); }}
+              />
+              <DropZone
+                zone="cols" label="Columns" tone="sky"
+                items={hasUploaded ? pivotCols : (p ? (p.cols || []) : [])}
+                hint="Pretiahnite sem dimenzie"
+                onRemove={col => { setPivotCols(c => c.filter(c2 => c2 !== col)); setPivotResult(null); }}
+              />
+              <DropZone
+                zone="values" label="Values" tone="green"
+                items={hasUploaded ? pivotValues : (p ? (p.values || []) : [])}
+                hint="Pretiahnite číselné pole sem"
+                onRemove={col => { setPivotValues(v => v.filter(c => c !== col)); setPivotResult(null); }}
+              />
+              <DropZone
+                zone="filters" label="Filters" tone="amber"
+                items={hasUploaded ? pivotFilters : (p ? (p.filters || []) : [])}
+                hint="Pretiahnite filter sem"
+                onRemove={col => { setPivotFilters(f => f.filter(c => c !== col)); setPivotResult(null); }}
+              />
             </div>
+
             {hasUploaded && (
-              <div className="mt-4 flex items-center gap-2">
+              <div className="mt-4 flex items-center gap-3">
                 <Button
                   variant="primary"
-                  icon={<IcoPlay className="w-4 h-4"/>}
-                  onClick={computePivot}
-                  disabled={pivotRows.length === 0 || pivotValues.length === 0}
-                >Compute Pivot</Button>
-                {(pivotRows.length === 0 || pivotValues.length === 0) && (
+                  icon={isComputing ? <LoadingSpinner/> : <IcoPlay className="w-4 h-4"/>}
+                  onClick={handleComputePivot}
+                  disabled={isComputing || pivotRows.length === 0 || pivotValues.length === 0}
+                >
+                  {isComputing ? 'Počítam…' : 'Compute Pivot'}
+                </Button>
+                {(pivotRows.length === 0 || pivotValues.length === 0) && !isComputing && (
                   <span className="text-xs text-slate-400">Pridajte aspoň 1 pole do Rows a 1 do Values</span>
+                )}
+                {duckDbReady && (
+                  <span className="text-[11px] text-emerald-600 font-mono font-semibold">⚡ DuckDB SQL</span>
                 )}
               </div>
             )}
           </Card>
 
-          {/* Real pivot result */}
+          {/* Pivot result */}
           {pivotResult && pivotResult.length > 0 && (
             <Card
               title={`Výsledok: ${pivotRows[0]} → ${pivotValues[0]}`}
               subtitle={`${pivotResult.length} skupín · Spolu: ${fmt(pivotTotal)} EUR`}
               className="fade-in"
               padded={false}
+              right={<Button variant="secondary" size="sm" onClick={() => setPivotResult(null)}>Zatvoriť</Button>}
             >
-              <div className="p-5 space-y-2">
-                {pivotResult.slice(0, 20).map((row, i) => {
-                  const pct = pivotMax > 0 ? Math.abs(row.val) / pivotMax * 100 : 0;
-                  const positive = row.val >= 0;
-                  return (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="w-44 text-[12px] font-mono text-slate-700 truncate shrink-0" title={row.key}>{row.key}</div>
-                      <div className="flex-1 h-6 bg-slate-50 rounded overflow-hidden">
-                        <div
-                          className={cls('h-full rounded transition-all', positive ? 'bg-emerald-400' : 'bg-red-400')}
-                          style={{ width: pct + '%' }}
-                        />
+              <div id="pivot-result-printable">
+                <div className="p-5 space-y-2">
+                  {pivotResult.slice(0, 20).map((row, i) => {
+                    const pct      = pivotMax > 0 ? Math.abs(row.val) / pivotMax * 100 : 0;
+                    const positive = row.val >= 0;
+                    return (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="w-44 text-[12px] font-mono text-slate-700 truncate shrink-0" title={row.key}>{row.key}</div>
+                        <div className="flex-1 h-6 bg-slate-50 rounded overflow-hidden">
+                          <div
+                            className={cls('h-full rounded transition-all', positive ? 'bg-emerald-400' : 'bg-red-400')}
+                            style={{ width: pct + '%' }}
+                          />
+                        </div>
+                        <div className={cls('w-40 text-right text-[12.5px] font-mono tabular-nums shrink-0', positive ? 'text-emerald-700' : 'text-red-700')}>
+                          {fmt(row.val)}
+                        </div>
                       </div>
-                      <div className={cls('w-40 text-right text-[12.5px] font-mono tabular-nums shrink-0', positive ? 'text-emerald-700' : 'text-red-700')}>
-                        {fmt(row.val)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {pivotResult.length > 0 && (
+                    );
+                  })}
+                </div>
                 <div className="border-t border-slate-100 overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -252,7 +410,7 @@ function SectionPivot() {
                             {fmt(row.val)}
                           </td>
                           <td className="px-4 py-2 text-right font-mono text-[12px] text-slate-500 tabular-nums">
-                            {pivotTotal !== 0 ? Math.abs((row.val / pivotTotal) * 100).toLocaleString('sk-SK', { maximumFractionDigits: 1 }) + ' %' : '—'}
+                            {pivotTotal !== 0 ? Math.abs(row.val / pivotTotal * 100).toLocaleString('sk-SK', { maximumFractionDigits: 1 }) + ' %' : '—'}
                           </td>
                         </tr>
                       ))}
@@ -266,14 +424,30 @@ function SectionPivot() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+              {pivotResult.length > 20 && (
+                <div className="px-5 py-2.5 border-t border-slate-100 text-xs text-slate-400">
+                  Graf zobrazuje top 20 z {pivotResult.length} skupín
+                </div>
               )}
             </Card>
           )}
 
-          {/* Mock preview for saved pivots (fallback when no real data) */}
-          {!pivotResult && (
-            <Card title="Náhľad" subtitle={p.id === 'p1' ? 'P&L by month — Q1 + Apr 2026 (€)' : 'Náhľad výsledku'} padded={false}>
-              {p.id === 'p1' ? (
+          {/* Empty state when data loaded but not computed */}
+          {!pivotResult && hasUploaded && !isComputing && (
+            <Card padded>
+              <EmptyHint>Vyberte Rows a Values z panela vľavo, potom kliknite „Compute Pivot".</EmptyHint>
+            </Card>
+          )}
+
+          {/* Mock preview for p1 when no real data */}
+          {!pivotResult && !hasUploaded && (
+            <Card
+              title="Náhľad"
+              subtitle={p && p.id === 'p1' ? 'P&L by month — Q1 + Apr 2026 (€)' : 'Náhľad výsledku'}
+              padded={false}
+            >
+              {p && p.id === 'p1' ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -294,7 +468,7 @@ function SectionPivot() {
                             <td key={j} className={cls(
                               'px-4 py-2 text-right font-mono text-[12.5px] tabular-nums',
                               j === r.cells.length - 1 && 'bg-[#1E3A5F]/5 font-semibold',
-                              c < 0 ? 'text-red-700' : 'text-emerald-700'
+                              c < 0 ? 'text-red-700' : 'text-emerald-700',
                             )}>{fmt(c)}</td>
                           ))}
                         </tr>
@@ -306,7 +480,7 @@ function SectionPivot() {
                             'px-4 py-2.5 text-right font-mono tabular-nums',
                             j === PIVOT_PREVIEW.totals.length - 1 && 'bg-[#1E3A5F] text-white',
                             t < 0 ? 'text-red-700' : 'text-emerald-700',
-                            j === PIVOT_PREVIEW.totals.length - 1 && (t < 0 ? '!text-red-200' : '!text-white')
+                            j === PIVOT_PREVIEW.totals.length - 1 && (t < 0 ? '!text-red-200' : '!text-white'),
                           )}>{fmt(t)}</td>
                         ))}
                       </tr>

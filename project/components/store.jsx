@@ -15,6 +15,8 @@ function AppStateProvider({ children }) {
   const [auditLog, setAuditLog]             = React.useState([]);
   const [dbAuditLog, setDbAuditLog]         = React.useState([]);
   const [dbReady, setDbReady]               = React.useState(false);
+  const [duckDb, setDuckDb]                 = React.useState(null);
+  const [duckDbReady, setDuckDbReady]       = React.useState(false);
 
   // ── Inicializácia: načítaj pravidlá a audit log zo Supabase pri štarte ──
   React.useEffect(() => {
@@ -59,6 +61,37 @@ function AppStateProvider({ children }) {
       }
     }
     init();
+  }, []);
+
+  // ── DuckDB inicializácia ───────────────────────────────────────────────────
+  React.useEffect(() => {
+    const initDuck = async () => {
+      try {
+        if (typeof duckdb === 'undefined') return;
+        const JSDELIVR_BUNDLES = duckdb.selectBundle({
+          mvp: {
+            mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-mvp.wasm',
+            mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-mvp.worker.js',
+          },
+          eh: {
+            mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-eh.wasm',
+            mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-eh.worker.js',
+          },
+        });
+        const bundle = await JSDELIVR_BUNDLES;
+        const worker = new Worker(bundle.mainWorker);
+        const logger = new duckdb.ConsoleLogger();
+        const db = new duckdb.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule);
+        setDuckDb(db);
+        setDuckDbReady(true);
+        console.log('[ETL Commander] DuckDB ready ✓');
+      } catch (e) {
+        console.warn('[ETL Commander] DuckDB init failed, JS fallback active:', e.message);
+        setDuckDbReady(false);
+      }
+    };
+    initDuck();
   }, []);
 
   // ── Audit log helper ──────────────────────────────────────────────────────
@@ -293,6 +326,61 @@ function AppStateProvider({ children }) {
     return id;
   }, [addAuditEntry]);
 
+  // ── runPivotQuery: DuckDB SQL alebo JS fallback agregácia ────────────────
+  const runPivotQuery = React.useCallback(async (tableKey, rowDim, valueCols, filters = []) => {
+    const allData =
+      transformedData[tableKey + '_numerator'] ||
+      transformedData[tableKey + '_mapped']    ||
+      uploadedFiles[tableKey];
+    if (!allData || allData.length === 0) return null;
+
+    const jsFallback = () => {
+      const valueCol = valueCols[0];
+      const agg = {};
+      allData.forEach(row => {
+        const key = String(row[rowDim] ?? 'N/A');
+        const val = parseFloat(String(row[valueCol] ?? '0').replace(',', '.')) || 0;
+        agg[key] = (agg[key] || 0) + val;
+      });
+      return Object.entries(agg)
+        .map(([key, val]) => ({ key, val }))
+        .sort((a, b) => Math.abs(b.val) - Math.abs(a.val));
+    };
+
+    if (!duckDb) return jsFallback();
+
+    try {
+      const conn = await duckDb.connect();
+      const tableName = 'tbl_' + tableKey.replace(/[^a-zA-Z0-9]/g, '_');
+      const jsonData  = JSON.stringify(allData);
+      await conn.query(
+        `CREATE OR REPLACE TABLE ${tableName} AS ` +
+        `SELECT * FROM read_json_auto('data:application/json,${encodeURIComponent(jsonData)}')`
+      );
+      const aggExprs = valueCols.map(col =>
+        `SUM(TRY_CAST("${col}" AS DOUBLE)) as "${col}_sum"`
+      ).join(', ');
+      const whereClause = filters.length > 0 ? 'WHERE ' + filters.join(' AND ') : '';
+      const sql = `
+        SELECT "${rowDim}" as key, ${aggExprs}, COUNT(*) as row_count
+        FROM ${tableName} ${whereClause}
+        GROUP BY "${rowDim}"
+        ORDER BY ABS("${valueCols[0]}_sum") DESC NULLS LAST
+      `;
+      const result = await conn.query(sql);
+      await conn.close();
+      return result.toArray().map(row => ({
+        key:     String(row.key ?? 'N/A'),
+        val:     Number(row[valueCols[0] + '_sum'] ?? 0),
+        count:   Number(row.row_count ?? 0),
+        allVals: Object.fromEntries(valueCols.map(c => [c, Number(row[c + '_sum'] ?? 0)])),
+      }));
+    } catch (e) {
+      console.warn('[ETL] DuckDB query failed, JS fallback:', e.message);
+      return jsFallback();
+    }
+  }, [duckDb, transformedData, uploadedFiles]);
+
   // ── Kombinovaný audit log: reálne akcie + DB záznamy ─────────────────────
   const combinedAuditLog = React.useMemo(() => {
     return [...auditLog, ...dbAuditLog];
@@ -319,6 +407,7 @@ function AppStateProvider({ children }) {
     mappingsList, setMappingsList,
     mappingVersions,
     createMapping, deleteRule, updateRule, versionMapping,
+    duckDbReady, runPivotQuery,
   };
 
   return (
