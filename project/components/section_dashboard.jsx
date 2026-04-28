@@ -77,7 +77,7 @@ function SectionDashboard() {
         ) : (
           <>
             <StatTile
-              label="Aktívne mappingy"
+              label="RAAAAAAAAAH"
               value="47"
               sublabel="3 v reviewe, 2 draft"
               tone="navy"
