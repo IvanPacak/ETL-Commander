@@ -28,9 +28,9 @@ function SectionMapping() {
     }
   }, [tableKey]);
 
-  const handleRunMapping = () => {
+  const handleRunMapping = async () => {
     if (!tableKey || !sourceColSel) return;
-    const result = applyMapping(tableKey, activeId, sourceColSel, targetColName);
+    const result = await applyMapping(tableKey, activeId, sourceColSel, targetColName);
     if (result) {
       setMappingResult(result);
       setShowPreview(true);
