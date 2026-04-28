@@ -10,7 +10,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-<!-- ✅ Supabase JS klient — MUSÍ byť pred supabase.js a store.jsx -->
+<!-- Supabase JS klient — musí byť pred supabase.js a store.jsx -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,10 +63,17 @@
   .lineage-link { stroke: #94a3b8; stroke-width: 1.5; fill: none; }
   .lineage-link.active { stroke: #1E3A5F; stroke-width: 2; }
 
+<<<<<<< HEAD
   /* DB status badge */
   #db-status {
     position: fixed;
     bottom: 14px;
+=======
+  /* DB status indicator */
+  .db-indicator {
+    position: fixed;
+    bottom: 16px;
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
     right: 16px;
     display: flex;
     align-items: center;
@@ -74,6 +81,7 @@
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
+<<<<<<< HEAD
     padding: 5px 11px;
     font-size: 11px;
     font-family: 'JetBrains Mono', monospace;
@@ -83,22 +91,49 @@
     pointer-events: none;
   }
   .db-dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; animation: pulse-dot 2s infinite; }
+=======
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #64748b;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    z-index: 50;
+  }
+  .db-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    animation: pulse-dot 2s infinite;
+  }
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
   .db-dot.offline { background: #f59e0b; animation: none; }
 </style>
 </head>
 <body>
   <div id="root"></div>
+<<<<<<< HEAD
   <div id="db-status">
+=======
+  <div id="db-status" class="db-indicator">
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
     <span class="db-dot" id="db-dot"></span>
     <span id="db-label">Supabase</span>
   </div>
 
+<<<<<<< HEAD
   <!-- Poradie načítania je kritické! -->
+=======
+  <!-- Poradie načítania je dôležité! -->
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
   <script type="text/babel" src="components/icons.jsx"></script>
   <script type="text/babel" src="components/ui.jsx"></script>
   <script type="text/babel" src="components/data.jsx"></script>
 
+<<<<<<< HEAD
   <!-- ✅ supabase.js PRED store.jsx -->
+=======
+  <!-- ✅ NOVÉ: Supabase helper (musí byť pred store.jsx) -->
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
   <script type="text/babel" src="components/supabase.js"></script>
 
   <script type="text/babel" src="components/store.jsx"></script>
@@ -116,6 +151,7 @@
   <script type="text/babel" src="components/section_admin.jsx"></script>
   <script type="text/babel" src="app.jsx"></script>
 
+<<<<<<< HEAD
   <script>
     window.addEventListener('load', function() {
       setTimeout(function() {
@@ -128,6 +164,20 @@
           label.textContent = 'DB offline';
         }
       }, 2000);
+=======
+  <!-- DB status indicator updater -->
+  <script>
+    // Aktualizuje DB indikátor po načítaní Supabase klienta
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        if (window.supabaseClient) {
+          document.getElementById('db-label').textContent = 'Supabase · eu-central-1';
+        } else {
+          document.getElementById('db-dot').classList.add('offline');
+          document.getElementById('db-label').textContent = 'offline mode';
+        }
+      }, 1500);
+>>>>>>> d011847 (Add Supabase persistence — audit log, GL transactions, mapping categories)
     });
   </script>
 </body>
