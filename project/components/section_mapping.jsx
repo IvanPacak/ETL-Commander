@@ -2,7 +2,8 @@
 function SectionMapping() {
   const {
     uploadedFiles, applyMapping, mappingRules, setMappingRules, addAuditEntry,
-    mappingsList, mappingVersions, createMapping, deleteRule, updateRule, versionMapping,
+    mappingsList, mappingVersions, createMapping, deleteRule, updateRule,
+    addMappingRule, activateMappingRuleset,
   } = useAppState();
 
   const [activeId, setActiveId]           = React.useState('m1');
@@ -15,16 +16,17 @@ function SectionMapping() {
 
   const [showAddRule, setShowAddRule]     = React.useState(false);
   const [newRule, setNewRule]             = React.useState({ src: '', op: '=', tgt: '', prio: 1 });
-  const [editingRule, setEditingRule]     = React.useState(null); // index or null
+  const [editingRule, setEditingRule]     = React.useState(null);
 
   const [filterText, setFilterText]       = React.useState('');
   const [filterOp, setFilterOp]           = React.useState('all');
-  const [dropdownOpen, setDropdownOpen]   = React.useState(null); // rule index or null
+  const [dropdownOpen, setDropdownOpen]   = React.useState(null);
   const dropdownRef                       = React.useRef(null);
 
-  const [showNewMapping, setShowNewMapping]     = React.useState(false);
-  const [newMappingForm, setNewMappingForm]     = React.useState({ name: '', source: '', target: '' });
-  const [versionToast, setVersionToast]         = React.useState(null);
+  const [showNewMapping, setShowNewMapping]   = React.useState(false);
+  const [newMappingForm, setNewMappingForm]   = React.useState({ name: '', source: '', target: '' });
+  const [versionToast, setVersionToast]       = React.useState(null);
+  const [showAiModal, setShowAiModal]         = React.useState(false);
 
   const m              = (mappingsList || []).find(x => x.id === activeId);
   const rules          = mappingRules[activeId] || [];
@@ -37,7 +39,6 @@ function SectionMapping() {
     ? Object.keys(uploadedFiles[tableKey][0] || {})
     : [];
 
-  // Close dropdown on outside click
   React.useEffect(() => {
     if (dropdownOpen === null) return;
     const handler = (e) => {
@@ -76,16 +77,12 @@ function SectionMapping() {
     }
   };
 
-  const handleSaveRule = () => {
+  const handleSaveRule = async () => {
     if (!newRule.src || !newRule.tgt) return;
     if (editingRule !== null) {
       updateRule(activeId, editingRule, newRule);
     } else {
-      setMappingRules(prev => ({
-        ...prev,
-        [activeId]: [...(prev[activeId] || []), { ...newRule, prio: Number(newRule.prio) || 1 }],
-      }));
-      addAuditEntry('mapping.edit', `Pridané pravidlo "${newRule.src} ${newRule.op} ${newRule.tgt}" do mappingu ${activeId}`);
+      await addMappingRule(activeId, newRule);
     }
     setNewRule({ src: '', op: '=', tgt: '', prio: 1 });
     setShowAddRule(false);
@@ -105,7 +102,7 @@ function SectionMapping() {
   };
 
   const handleVersionMapping = async () => {
-    const n = await versionMapping(activeId);
+    const n = await activateMappingRuleset(activeId);
     setVersionToast(`v${n}`);
     setTimeout(() => setVersionToast(null), 3000);
   };
@@ -119,9 +116,8 @@ function SectionMapping() {
     setNewMappingForm({ name: '', source: '', target: '' });
   };
 
-  // Filtered rules
   const filteredRules = rules.filter(r => {
-    const q = filterText.toLowerCase();
+    const q        = filterText.toLowerCase();
     const matchText = !q || r.src.toLowerCase().includes(q) || r.tgt.toLowerCase().includes(q);
     const matchOp   = filterOp === 'all' || r.op === filterOp;
     return matchText && matchOp;
@@ -139,13 +135,19 @@ function SectionMapping() {
         title="Mapping Editor"
         subtitle="Pravidlá, ktoré transformujú raw hodnoty na cieľové kategórie"
         actions={
-          <Button icon={<IcoPlus className="w-4 h-4"/>} onClick={() => setShowNewMapping(v => !v)}>
-            Nový mapping
-          </Button>
+          <>
+            <Button
+              icon={<span className="text-sm leading-none">✨</span>}
+              variant="secondary"
+              onClick={() => setShowAiModal(true)}
+            >AI navrhnúť pravidlá</Button>
+            <Button icon={<IcoPlus className="w-4 h-4"/>} onClick={() => setShowNewMapping(v => !v)}>
+              Nový mapping
+            </Button>
+          </>
         }
       />
 
-      {/* New mapping inline form */}
       {showNewMapping && (
         <div className="mb-4 px-5 py-4 bg-white rounded-lg ring-1 ring-slate-200 shadow-sm fade-in flex items-end gap-3 flex-wrap">
           <div className="flex-1 min-w-[160px]">
@@ -227,7 +229,7 @@ function SectionMapping() {
                     <span className="text-slate-300">·</span>
                     <Badge tone="navy">v{currentVersion}</Badge>
                     {versionToast && (
-                      <span className="text-emerald-600 font-semibold fade-in">✓ verzovaný ako {versionToast}</span>
+                      <span className="text-emerald-600 font-semibold fade-in">✓ aktivovaný ako {versionToast}</span>
                     )}
                     <Badge tone="success" dot>active</Badge>
                   </div>
@@ -245,7 +247,6 @@ function SectionMapping() {
               </div>
             </div>
 
-            {/* Apply to real data panel */}
             {hasUploaded && (
               <div className="px-5 py-3 border-b border-slate-100 bg-[#1E3A5F]/[2%] flex items-center gap-3 flex-wrap">
                 <IcoDb className="w-4 h-4 text-[#1E3A5F] shrink-0"/>
@@ -471,7 +472,6 @@ function SectionMapping() {
             )}
           </Card>
 
-          {/* Mapping result */}
           {showPreview && mappingResult && (
             <Card
               title="Výsledok mappingu"
@@ -516,6 +516,56 @@ function SectionMapping() {
           )}
         </div>
       </div>
+
+      {/* AI Modal */}
+      {showAiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAiModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl ring-1 ring-slate-200 w-[500px] p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1E3A5F]/10 to-[#1E3A5F]/5 flex items-center justify-center ring-1 ring-[#1E3A5F]/15">
+                <span className="text-lg leading-none">✨</span>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">AI Asistent — Navrhnúť pravidlá</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Experimentálna funkcia · Vyžaduje ľudskú kontrolu pred aktiváciou</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-[#1E3A5F]/[4%] ring-1 ring-[#1E3A5F]/10 p-4 mb-4">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                AI analyzuje vzory vo zdrojových dátach a navrhne mapping pravidlá pre aktuálny ruleset.
+                Každé pravidlo obsahuje <span className="font-semibold">confidence score</span> a odôvodnenie — DBA musí každé pravidlo schváliť pred uložením.
+              </p>
+            </div>
+
+            <div className="space-y-2.5 mb-5">
+              {[
+                'Pattern matching z historických GL transakcií',
+                'Confidence score (0–100 %) pre každé navrhnuté pravidlo',
+                'Explainability — dôvod každého návrhu s príkladmi',
+                'Priorita pravidiel odvodená z frekvencie výskytu',
+              ].map((item, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <IcoCheck className="w-4 h-4 text-emerald-500 shrink-0"/>
+                  <span className="text-sm text-slate-600">{item}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 mb-5">
+              <div className="text-xs font-semibold text-amber-900 mb-1">Dostupnosť</div>
+              <div className="text-xs text-amber-800 leading-relaxed">
+                Táto funkcia je vo vývoji a bude dostupná v <span className="font-semibold">Q3 2026</span> ako súčasť ETL Commander Enterprise Edition.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setShowAiModal(false)}>Zatvoriť</Button>
+              <Button variant="primary" disabled icon={<span className="text-sm leading-none">✨</span>}>Spustiť AI analýzu</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

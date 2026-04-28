@@ -1,6 +1,6 @@
 // Section 1 — Domov (Dashboard)
 function SectionDashboard() {
-  const { uploadedFiles, transformedData } = useAppState();
+  const { uploadedFiles, transformedData, dbStatus } = useAppState();
   const max = Math.max(...RUN_HISTORY_7D.map(d => d.value));
   const activity = [
     { time: '03:14', label: 'RAW phase dokončená',       sub: '1,247,832 riadkov · 4m 12s', tone: 'success' },
@@ -183,6 +183,12 @@ function SectionDashboard() {
             <li className="flex items-center justify-between"><span className="text-slate-600">Fileserver SMB</span><Badge tone="success" dot>online</Badge></li>
             <li className="flex items-center justify-between"><span className="text-slate-600">ECB feed</span><Badge tone="success" dot>online</Badge></li>
             <li className="flex items-center justify-between"><span className="text-slate-600">Disk (warehouse)</span><Badge tone="warning" dot>62 % použité</Badge></li>
+            <li className="flex items-center justify-between">
+              <span className="text-slate-600">Supabase DB</span>
+              <Badge tone={dbStatus === 'online' ? 'success' : dbStatus === 'offline' ? 'warning' : 'navy'} dot>
+                {dbStatus === 'online' ? 'online' : dbStatus === 'offline' ? 'offline' : 'connecting…'}
+              </Badge>
+            </li>
           </ul>
         </Card>
 

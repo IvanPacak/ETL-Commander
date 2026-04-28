@@ -1,24 +1,25 @@
 // Section 5 — Numerátor Engine
 function SectionNumerator() {
-  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry } = useAppState();
-  const [activeId, setActiveId] = React.useState('n1');
-  const [numResult, setNumResult] = React.useState(null);
+  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry, activateNumerator } = useAppState();
+  const [activeId, setActiveId]           = React.useState('n1');
+  const [numResult, setNumResult]         = React.useState(null);
   const [accountColSel, setAccountColSel] = React.useState('ACCDB');
-  const [amountColSel, setAmountColSel] = React.useState('AMTEUR');
+  const [amountColSel, setAmountColSel]   = React.useState('AMTEUR');
   const [selectedTable, setSelectedTable] = React.useState('');
   const [showActivateModal, setShowActivateModal] = React.useState(false);
+  const [showAiModal, setShowAiModal]     = React.useState(false);
   const [numeratorStatuses, setNumeratorStatuses] = React.useState(
     Object.fromEntries(NUMERATORS.map(n => [n.id, n.status]))
   );
 
-  const n = NUMERATORS.find(x => x.id === activeId);
+  const n     = NUMERATORS.find(x => x.id === activeId);
   const rules = NUMERATOR_RULES[activeId] || [];
   const audit = NUMERATOR_AUDIT[activeId] || NUMERATOR_AUDIT.n1;
 
   const uploadedKeys = Object.keys(uploadedFiles);
-  const hasUploaded = uploadedKeys.length > 0;
-  const tableKey = selectedTable || uploadedKeys[0] || '';
-  const tableCols = tableKey && uploadedFiles[tableKey]
+  const hasUploaded  = uploadedKeys.length > 0;
+  const tableKey     = selectedTable || uploadedKeys[0] || '';
+  const tableCols    = tableKey && uploadedFiles[tableKey]
     ? Object.keys(uploadedFiles[tableKey][0] || {})
     : [];
 
@@ -31,17 +32,17 @@ function SectionNumerator() {
     if (result) setNumResult(result);
   };
 
-  const handleConfirmActivate = () => {
+  const handleConfirmActivate = async () => {
     setNumeratorStatuses(prev => ({ ...prev, [activeId]: 'Active' }));
-    addAuditEntry('numerator.activate', `Numerátor ${n.name} aktivovaný (${n.version})`);
+    await activateNumerator(activeId, `Numerátor ${n.name} aktivovaný (${n.version})`);
     setShowActivateModal(false);
   };
 
-  const revenues = numResult ? numResult.filter(r => r._sign === 1).reduce((s, r) => s + (r._signed_amount || 0), 0) : 0;
-  const costs = numResult ? numResult.filter(r => r._sign === -1).reduce((s, r) => s + Math.abs(r._signed_amount || 0), 0) : 0;
-  const grossMargin = revenues - costs;
+  const revenues        = numResult ? numResult.filter(r => r._sign === 1).reduce((s, r) => s + (r._signed_amount || 0), 0) : 0;
+  const costs           = numResult ? numResult.filter(r => r._sign === -1).reduce((s, r) => s + Math.abs(r._signed_amount || 0), 0) : 0;
+  const grossMargin     = revenues - costs;
   const classifiedCount = numResult ? numResult.filter(r => r._sign !== 0).length : 0;
-  const currentStatus = numeratorStatuses[activeId] || n.status;
+  const currentStatus   = numeratorStatuses[activeId] || n.status;
 
   return (
     <div className="fade-in">
@@ -58,7 +59,7 @@ function SectionNumerator() {
             <ul className="py-1 max-h-[640px] overflow-y-auto">
               {NUMERATORS.map(num => {
                 const status = numeratorStatuses[num.id] || num.status;
-                const tone = status === 'Active' ? 'success' : status === 'Draft' ? 'draft' : 'warning';
+                const tone   = status === 'Active' ? 'success' : status === 'Draft' ? 'draft' : 'warning';
                 return (
                   <li key={num.id}>
                     <button
@@ -112,7 +113,6 @@ function SectionNumerator() {
               </div>
             </div>
 
-            {/* Test Run config panel */}
             {hasUploaded && (
               <div className="px-5 py-3 border-b border-slate-100 bg-[#1E3A5F]/[2%] flex items-center gap-3">
                 <IcoEye className="w-4 h-4 text-[#1E3A5F] shrink-0"/>
@@ -190,7 +190,6 @@ function SectionNumerator() {
             </div>
           </Card>
 
-          {/* Test Run result */}
           {numResult && (
             <Card title="Výsledok Test Run" subtitle={`${numResult.length.toLocaleString('sk-SK')} riadkov spracovaných · ${classifiedCount.toLocaleString('sk-SK')} klasifikovaných`} className="fade-in" padded={false}>
               <div className="p-5 grid grid-cols-3 gap-4 border-b border-slate-100">
@@ -204,10 +203,7 @@ function SectionNumerator() {
                   <div className="text-xl font-semibold text-red-800 tabular-nums">{fmtEUR(costs)}</div>
                   <div className="text-xs text-red-600 mt-1">{numResult.filter(r => r._sign === -1).length} riadkov</div>
                 </div>
-                <div className={cls(
-                  'rounded-md ring-1 p-4',
-                  grossMargin >= 0 ? 'bg-[#1E3A5F]/5 ring-[#1E3A5F]/20' : 'bg-amber-50 ring-amber-200'
-                )}>
+                <div className={cls('rounded-md ring-1 p-4', grossMargin >= 0 ? 'bg-[#1E3A5F]/5 ring-[#1E3A5F]/20' : 'bg-amber-50 ring-amber-200')}>
                   <div className={cls('text-xs font-semibold uppercase tracking-wide mb-1', grossMargin >= 0 ? 'text-[#1E3A5F]' : 'text-amber-700')}>Hrubá marža</div>
                   <div className={cls('text-xl font-semibold tabular-nums', grossMargin >= 0 ? 'text-[#1E3A5F]' : 'text-amber-800')}>{fmtEUR(grossMargin)}</div>
                   <div className={cls('text-xs mt-1', revenues > 0 ? (grossMargin >= 0 ? 'text-[#1E3A5F]/70' : 'text-amber-600') : 'text-slate-400')}>
@@ -286,7 +282,14 @@ function SectionNumerator() {
                   </li>
                 ))}
               </ul>
-              <div className="mt-3"><Button variant="secondary" size="sm">Zobraziť detail</Button></div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button variant="secondary" size="sm">Zobraziť detail</Button>
+                <Button
+                  variant="secondary" size="sm"
+                  icon={<span className="text-sm leading-none">✨</span>}
+                  onClick={() => setShowAiModal(true)}
+                >AI Anomaly Detection</Button>
+              </div>
             </Card>
 
             <Card title="Safety Rules" subtitle="Pred-aktivačná validácia">
@@ -372,6 +375,56 @@ function SectionNumerator() {
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
               <Button variant="secondary" onClick={() => setShowActivateModal(false)}>Zrušiť</Button>
               <Button variant="success" icon={<IcoCheck className="w-4 h-4"/>} onClick={handleConfirmActivate}>Potvrdiť aktiváciu</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Anomaly Detection modal */}
+      {showAiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAiModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl ring-1 ring-slate-200 w-[500px] p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-100 to-amber-50 flex items-center justify-center ring-1 ring-amber-200">
+                <span className="text-lg leading-none">✨</span>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">AI Anomaly Detection</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Automatická detekcia drift-ov a outlierov v numerátorovej logike</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-[#1E3A5F]/[4%] ring-1 ring-[#1E3A5F]/10 p-4 mb-4">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                AI porovnáva aktuálnu definíciu numerátora s historickými výsledkami a identifikuje účty,
+                ktoré sa správajú neočakávane. Každý nález obsahuje <span className="font-semibold">severity score</span> a odporúčanú akciu.
+              </p>
+            </div>
+
+            <div className="space-y-2.5 mb-5">
+              {[
+                'Detekcia sign-flip anomálií na základe historických trendov',
+                'Clustering účtov s podobným správaním pre skupinové opravy',
+                'Root-cause analýza — dôvod každej anomálie s SQL query',
+                'Automatický návrh opravného pravidla s human review',
+              ].map((item, i) => (
+                <div key={i} className="flex items-center gap-2.5">
+                  <IcoCheck className="w-4 h-4 text-emerald-500 shrink-0"/>
+                  <span className="text-sm text-slate-600">{item}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 mb-5">
+              <div className="text-xs font-semibold text-amber-900 mb-1">Dostupnosť</div>
+              <div className="text-xs text-amber-800 leading-relaxed">
+                Táto funkcia je vo vývoji a bude dostupná v <span className="font-semibold">Q3 2026</span> ako súčasť ETL Commander Enterprise Edition.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setShowAiModal(false)}>Zatvoriť</Button>
+              <Button variant="primary" disabled icon={<span className="text-sm leading-none">✨</span>}>Spustiť analýzu</Button>
             </div>
           </div>
         </div>
