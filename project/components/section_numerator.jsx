@@ -25,9 +25,9 @@ function SectionNumerator() {
   const fmtEUR = (v) =>
     v.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
 
-  const handleTestRun = () => {
+  const handleTestRun = async () => {
     if (!tableKey) return;
-    const result = applyNumerator(tableKey, activeId, accountColSel, amountColSel);
+    const result = await applyNumerator(tableKey, activeId, accountColSel, amountColSel);
     if (result) setNumResult(result);
   };
 
