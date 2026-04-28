@@ -88,7 +88,7 @@ const IMPORTS = [
     freq: 'denne 22:30',     last: 'dnes 22:31',     count: '8,402 položiek', status: 'success' },
 ];
 
-const MAPPINGS = [
+window.MAPPINGS = [
   { id: 'm1', name: 'Account → Category',     count: 1247, source: 'raw.gl_imports', target: 'analytics.gl_clean',  keys: ['account_no'] },
   { id: 'm2', name: 'Supplier dedupe',         count: 89,   source: 'raw.suppliers',  target: 'analytics.suppliers', keys: ['ico','name'] },
   { id: 'm3', name: 'Product → Group',         count: 234,  source: 'raw.products',   target: 'analytics.products',  keys: ['sku'] },
@@ -353,7 +353,7 @@ const CONNECTION_PROFILES = [
 
 Object.assign(window, {
   PIPELINE_RUNS, RUN_HISTORY_7D, PIPELINE_PHASES, SCHEDULED, IMPORTS,
-  MAPPINGS, MAPPING_RULES, MAPPING_AUDIT,
+  MAPPING_RULES, MAPPING_AUDIT,
   NUMERATORS, NUMERATOR_RULES, NUMERATOR_AUDIT,
   SCHEMAS, SCHEMA_COLUMNS,
   LINEAGE_NODES, LINEAGE_LINKS,

@@ -7,8 +7,10 @@ function AppStateProvider({ children }) {
   const [uploadedFiles, setUploadedFiles]   = React.useState({});
   const [fileIds, setFileIds]               = React.useState({}); // fileKey → supabase UUID
   const [activeTable, setActiveTable]       = React.useState(null);
-  const [mappingRules, setMappingRules]     = React.useState(MAPPING_RULES);
-  const [numeratorRules, setNumeratorRules] = React.useState(NUMERATOR_RULES);
+  const [mappingRules, setMappingRules]       = React.useState(MAPPING_RULES);
+  const [mappingsList, setMappingsList]       = React.useState(window.MAPPINGS || []);
+  const [mappingVersions, setMappingVersions] = React.useState({ m1: 13, m2: 3, m3: 2, m4: 1, m5: 1 });
+  const [numeratorRules, setNumeratorRules]   = React.useState(NUMERATOR_RULES);
   const [transformedData, setTransformedData] = React.useState({});
   const [auditLog, setAuditLog]             = React.useState([]);
   const [dbAuditLog, setDbAuditLog]         = React.useState([]);
@@ -240,6 +242,48 @@ function AppStateProvider({ children }) {
     return { groups, duplicates, totalDuplicates: rows.length - Object.keys(groups).length };
   }, [uploadedFiles, addAuditEntry]);
 
+  // ── createMapping: vytvorí nový mapping a inicializuje pravidlá ──────────
+  const createMapping = React.useCallback(async (name, source, target) => {
+    const ids = mappingsList.map(m => parseInt(m.id.replace('m', ''))).filter(n => !isNaN(n));
+    const nextNum = Math.max(...ids, 0) + 1;
+    const newId = 'm' + nextNum;
+    setMappingsList(prev => [...prev, { id: newId, name, source: source || '—', target: target || '—', count: 0, keys: [] }]);
+    setMappingRules(prev => ({ ...prev, [newId]: [] }));
+    await addAuditEntry('mapping.create', `Vytvorený nový mapping "${name}" (${source} → ${target})`);
+    return newId;
+  }, [mappingsList, addAuditEntry]);
+
+  // ── deleteRule: vymaže pravidlo podľa indexu ─────────────────────────────
+  const deleteRule = React.useCallback(async (mappingId, ruleIndex) => {
+    let ruleName = '';
+    setMappingRules(prev => {
+      const rule = (prev[mappingId] || [])[ruleIndex];
+      if (rule) ruleName = `"${rule.src} ${rule.op} ${rule.tgt}"`;
+      return { ...prev, [mappingId]: (prev[mappingId] || []).filter((_, i) => i !== ruleIndex) };
+    });
+    await addAuditEntry('mapping.edit', `Zmazané pravidlo ${ruleName} z mappingu ${mappingId}`);
+  }, [addAuditEntry]);
+
+  // ── updateRule: aktualizuje pravidlo na danom indexe ─────────────────────
+  const updateRule = React.useCallback(async (mappingId, ruleIndex, updatedRule) => {
+    setMappingRules(prev => ({
+      ...prev,
+      [mappingId]: (prev[mappingId] || []).map((r, i) =>
+        i === ruleIndex ? { ...updatedRule, prio: Number(updatedRule.prio) || 1 } : r
+      ),
+    }));
+    await addAuditEntry('mapping.edit', `Upravené pravidlo "${updatedRule.src} ${updatedRule.op} ${updatedRule.tgt}" v mappingu ${mappingId}`);
+  }, [addAuditEntry]);
+
+  // ── versionMapping: zvýši verziu mappingu ────────────────────────────────
+  const versionMapping = React.useCallback(async (mappingId) => {
+    const newVersion = (mappingVersions[mappingId] || 1) + 1;
+    setMappingVersions(prev => ({ ...prev, [mappingId]: newVersion }));
+    const mapping = mappingsList.find(m => m.id === mappingId);
+    await addAuditEntry('mapping.version', `Mapping "${mapping?.name || mappingId}" verzovaný ako v${newVersion}`);
+    return newVersion;
+  }, [mappingVersions, mappingsList, addAuditEntry]);
+
   // ── addMappingRuleToDb: uloží nové pravidlo do Supabase ───────────────────
   const addMappingRuleToDb = React.useCallback(async (rulesetId, rule) => {
     const id = await dbSaveMappingRule(rulesetId, rule);
@@ -272,6 +316,9 @@ function AppStateProvider({ children }) {
     applyNumerator,
     deduplicateSuppliers,
     addMappingRuleToDb,
+    mappingsList, setMappingsList,
+    mappingVersions,
+    createMapping, deleteRule, updateRule, versionMapping,
   };
 
   return (
