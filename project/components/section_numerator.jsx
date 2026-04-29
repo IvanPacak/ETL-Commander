@@ -1,6 +1,7 @@
 // Section 5 — Numerátor Engine
 function SectionNumerator() {
-  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry, activateNumerator, auditLog } = useAppState();
+  const { uploadedFiles, transformedData, applyNumerator, addAuditEntry, activateNumerator, auditLog,
+          numeratorsList, createNumeratorRuleset } = useAppState();
   const [activeId, setActiveId]           = React.useState('n1');
   const [numResult, setNumResult]         = React.useState(null);
   const [accountColSel, setAccountColSel] = React.useState('ACCDB');
@@ -8,11 +9,17 @@ function SectionNumerator() {
   const [selectedTable, setSelectedTable] = React.useState('');
   const [showActivateModal, setShowActivateModal] = React.useState(false);
   const [showAiModal, setShowAiModal]     = React.useState(false);
+  const [showNewModal, setShowNewModal]   = React.useState(false);
+  const [newNumName, setNewNumName]       = React.useState('');
+  const [newNumType, setNewNumType]       = React.useState('P&L Sign');
+  const [newNumDesc, setNewNumDesc]       = React.useState('');
+  const [savingNum, setSavingNum]         = React.useState(false);
   const [numeratorStatuses, setNumeratorStatuses] = React.useState(
-    Object.fromEntries(NUMERATORS.map(n => [n.id, n.status]))
+    Object.fromEntries((numeratorsList || NUMERATORS).map(n => [n.id, n.status]))
   );
 
-  const n     = NUMERATORS.find(x => x.id === activeId);
+  const allNumerators = numeratorsList && numeratorsList.length > 0 ? numeratorsList : NUMERATORS;
+  const n     = allNumerators.find(x => x.id === activeId) || allNumerators[0];
   const rules = NUMERATOR_RULES[activeId] || [];
   const numeratorAuditLog = (auditLog || []).filter(a => a.action && a.action.startsWith('numerator.'));
 
@@ -49,7 +56,7 @@ function SectionNumerator() {
       <PageHeader
         title="Numerátor Engine"
         subtitle="Klasifikácia a znakovanie účtov pre P&L, BS a interné výkazy"
-        actions={<Button icon={<IcoPlus className="w-4 h-4"/>}>Nový numerátor</Button>}
+        actions={<Button icon={<IcoPlus className="w-4 h-4"/>} onClick={() => setShowNewModal(true)}>Nový numerátor</Button>}
       />
 
       <div className="grid grid-cols-12 gap-4">
@@ -57,7 +64,7 @@ function SectionNumerator() {
         <div className="col-span-3">
           <Card title="Numerátory" padded={false}>
             <ul className="py-1 max-h-[640px] overflow-y-auto">
-              {NUMERATORS.map(num => {
+              {allNumerators.map(num => {
                 const status = numeratorStatuses[num.id] || num.status;
                 const tone   = status === 'Active' ? 'success' : status === 'Draft' ? 'draft' : 'warning';
                 return (
@@ -331,6 +338,59 @@ function SectionNumerator() {
           </Card>
         </div>
       </div>
+
+      {/* Nový numerátor modal */}
+      {showNewModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowNewModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl ring-1 ring-slate-200 w-[440px] p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-slate-900 mb-4">Nový numerátor</h3>
+            <div className="space-y-3">
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Názov numerátora <span className="text-red-500">*</span></div>
+                <input
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-slate-300 focus:ring-2 focus:ring-[#1E3A5F] outline-none"
+                  placeholder="napr. P&L Sign Custom 2025"
+                  value={newNumName}
+                  onChange={e => setNewNumName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Typ</div>
+                <Select value={newNumType} onChange={setNewNumType} options={[
+                  {value:'P&L Sign',label:'P&L Sign'},{value:'Balance Sheet Sign',label:'Balance Sheet Sign'},
+                  {value:'VAT Direction',label:'VAT Direction'},{value:'Custom',label:'Custom'},
+                ]}/>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Popis</div>
+                <textarea
+                  className="w-full text-sm rounded-md ring-1 ring-slate-300 px-3 py-2 h-16 focus:ring-2 focus:ring-[#1E3A5F] outline-none resize-none"
+                  placeholder="voliteľné"
+                  value={newNumDesc}
+                  onChange={e => setNewNumDesc(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setShowNewModal(false)} disabled={savingNum}>Zrušiť</Button>
+              <Button variant="primary" disabled={savingNum || !newNumName.trim()} onClick={async () => {
+                setSavingNum(true);
+                const newN = await createNumeratorRuleset(newNumName.trim(), 'Peter Novák');
+                if (newN) {
+                  setNumeratorStatuses(prev => ({ ...prev, [newN.id]: 'Draft' }));
+                  setActiveId(newN.id);
+                }
+                setShowNewModal(false);
+                setNewNumName(''); setNewNumType('P&L Sign'); setNewNumDesc('');
+                setSavingNum(false);
+              }}>
+                {savingNum ? 'Vytváram…' : 'Vytvoriť'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Activate modal */}
       {showActivateModal && (

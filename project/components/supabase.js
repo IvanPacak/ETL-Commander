@@ -71,6 +71,14 @@ window.etlDB = {
   },
 
   numerator: {
+    createRuleset: async function(name) {
+      var res = await sbFetch('numerator_rulesets', {
+        method: 'POST', prefer: 'return=representation',
+        body: { name: name, status: 'draft', version: 1 },
+      });
+      var row = Array.isArray(res) ? res[0] : res;
+      return row ? row.id : null;
+    },
     getRulesets: function() {
       return sbFetch(
         'numerator_rulesets?select=id,name,version,status,' +
@@ -118,7 +126,10 @@ window.etlDB = {
 
   pipeline: {
     getLast7Days: function() {
-      return sbFetch('pipeline_runs?order=started_at.desc&limit=7');
+      return sbFetch('pipeline_runs?order=started_at.desc&limit=50');
+    },
+    insert: function(phase, status, rowsProcessed, durationMs) {
+      return window.etlDB.pipeline.log(phase, status, rowsProcessed || 0, Math.round((durationMs || 0) / 1000));
     },
     log: function(phase, status, rowsProcessed, durationSeconds, errorMessage) {
       return sbFetch('pipeline_runs', {
@@ -154,14 +165,15 @@ window.etlDB = {
     getAll: function() {
       return sbFetch('imported_files?order=uploaded_at.desc');
     },
-    insert: async function(name, rowCount, columns) {
+    insert: async function(name, rowCount, columns, meta) {
+      meta = meta || {};
       var res = await sbFetch('imported_files', {
         method: 'POST',
         prefer: 'return=representation',
         body: {
           file_name: name,
-          file_type: 'xlsx',
-          row_count: rowCount,
+          file_type: meta.type || 'manual',
+          row_count: rowCount || 0,
           col_count: Array.isArray(columns) ? columns.length : (Number(columns) || 0),
         },
       });
@@ -237,47 +249,137 @@ window.etlDB = {
   },
 };
 
-// ─── etlSeedIfEmpty — vloží demo dáta ak je DB prázdna ───────
+// ─── etlSeedIfEmpty — additive seed: doplní chýbajúce rulesets ──
 
 window.etlSeedIfEmpty = async function() {
   try {
-    var existing = await sbFetch('mapping_rulesets?select=id&limit=1');
-    if (existing && existing.length > 0) {
-      console.log('[ETL Seed] DB already seeded, skipping');
-      return;
-    }
-    console.log('[ETL Seed] Empty DB — seeding from local constants...');
-    var mappings   = window.MAPPINGS       || [];
-    var mRules     = window.MAPPING_RULES  || {};
-    var numerators = window.NUMERATORS     || [];
-    var nRules     = window.NUMERATOR_RULES || {};
+    var SEED_MAPPINGS = [
+      {
+        name: 'Account → Category', status: 'active',
+        rules: [
+          { src: '343150', op: '=',    tgt: 'DPH výstupná 20%',  prio: 1 },
+          { src: '343200', op: '=',    tgt: 'DPH výstupná 10%',  prio: 1 },
+          { src: '343*',   op: 'LIKE', tgt: 'DPH ostatné',       prio: 2 },
+          { src: '504100', op: '=',    tgt: 'Materiál výroba',   prio: 1 },
+          { src: '504200', op: '=',    tgt: 'Materiál réžia',    prio: 1 },
+          { src: '504*',   op: 'LIKE', tgt: 'Materiál ostatné',  prio: 2 },
+          { src: '518100', op: '=',    tgt: 'Služby IT',         prio: 1 },
+          { src: '518200', op: '=',    tgt: 'Služby právne',     prio: 1 },
+          { src: '518*',   op: 'LIKE', tgt: 'Služby ostatné',    prio: 2 },
+          { src: '521*',   op: 'LIKE', tgt: 'Mzdy',              prio: 2 },
+          { src: '601*',   op: 'LIKE', tgt: 'Tržby výrobky',     prio: 2 },
+          { src: '602*',   op: 'LIKE', tgt: 'Tržby služby',      prio: 2 },
+          { src: '*',      op: 'ELSE', tgt: 'Nezaradené',        prio: 99 },
+        ],
+      },
+      {
+        name: 'Supplier dedupe', status: 'draft',
+        rules: [
+          { src: 'TATRA BANKA A.S.',  op: '=',    tgt: 'Tatra banka a.s.',     prio: 1 },
+          { src: 'TATRABANKA AS',      op: '=',    tgt: 'Tatra banka a.s.',     prio: 1 },
+          { src: 'SPP DISTRIBUCIA*',   op: 'LIKE', tgt: 'SPP distribúcia a.s.', prio: 2 },
+          { src: 'O2 SLOVAKIA*',       op: 'LIKE', tgt: 'O2 Slovakia s.r.o.',   prio: 2 },
+          { src: 'SLOVAK TELEKOM*',    op: 'LIKE', tgt: 'Slovak Telekom a.s.',  prio: 2 },
+        ],
+      },
+      {
+        name: 'Product → Group', status: 'draft',
+        rules: [
+          { src: 'SKU-A-',  op: 'LIKE', tgt: 'Skupina A výrobky',    prio: 1 },
+          { src: 'SKU-B-',  op: 'LIKE', tgt: 'Skupina B komponenty', prio: 1 },
+          { src: 'SKU-S-*', op: 'LIKE', tgt: 'Skupina S služby',     prio: 1 },
+        ],
+      },
+      {
+        name: 'Cost center → Department', status: 'draft',
+        rules: [
+          { src: 'CC-100', op: '=', tgt: 'Výroba',         prio: 1 },
+          { src: 'CC-200', op: '=', tgt: 'Logistika',      prio: 1 },
+          { src: 'CC-300', op: '=', tgt: 'Predaj',         prio: 1 },
+          { src: 'CC-400', op: '=', tgt: 'Administratíva', prio: 1 },
+          { src: 'CC-500', op: '=', tgt: 'IT',             prio: 1 },
+        ],
+      },
+    ];
 
-    for (var i = 0; i < mappings.length; i++) {
-      var m = mappings[i];
+    var existingMR = await sbFetch('mapping_rulesets?select=id,name&limit=20');
+    var existingMRNames = (existingMR || []).map(function(r) { return r.name; });
+    for (var i = 0; i < SEED_MAPPINGS.length; i++) {
+      var sm = SEED_MAPPINGS[i];
+      if (existingMRNames.indexOf(sm.name) !== -1) continue;
       var rsRes = await sbFetch('mapping_rulesets', {
         method: 'POST', prefer: 'return=representation',
-        body: { name: m.name, status: 'active', version: 1 },
+        body: { name: sm.name, status: sm.status, version: 1 },
       }).catch(function() { return null; });
       var rsId = rsRes && (Array.isArray(rsRes) ? rsRes[0] && rsRes[0].id : rsRes.id);
       if (!rsId) continue;
-      var rules = mRules[m.id] || [];
-      for (var j = 0; j < rules.length; j++) {
-        await window.etlDB.mapping.saveRule(rsId, rules[j]).catch(function() {});
+      for (var j = 0; j < sm.rules.length; j++) {
+        await window.etlDB.mapping.saveRule(rsId, sm.rules[j]).catch(function() {});
       }
+      console.log('[ETL Seed] Created mapping "' + sm.name + '"');
     }
-    for (var i = 0; i < numerators.length; i++) {
-      var n = numerators[i];
+
+    var SEED_NUMERATORS = [
+      {
+        name: 'P&L Sign Numerator', status: 'active',
+        rules: [
+          { pattern: '5*',     op: 'LIKE', sign: '-1', prio: 2, label: 'Náklady' },
+          { pattern: '6*',     op: 'LIKE', sign: '+1', prio: 2, label: 'Výnosy' },
+          { pattern: '343150', op: '=',    sign: '-1', prio: 1, label: 'DPH výstupná high' },
+          { pattern: '343350', op: '=',    sign: '+1', prio: 1, label: 'DPH vstupná high' },
+          { pattern: '518*',   op: 'LIKE', sign: '-1', prio: 2, label: 'Služby' },
+          { pattern: '521*',   op: 'LIKE', sign: '-1', prio: 2, label: 'Mzdy' },
+          { pattern: '601*',   op: 'LIKE', sign: '+1', prio: 2, label: 'Tržby výrobky' },
+          { pattern: '602*',   op: 'LIKE', sign: '+1', prio: 2, label: 'Tržby služby' },
+        ],
+      },
+      {
+        name: 'Balance Sheet Sign', status: 'active',
+        rules: [
+          { pattern: '0*', op: 'LIKE', sign: '+1', prio: 2, label: 'Aktíva DM' },
+          { pattern: '1*', op: 'LIKE', sign: '+1', prio: 2, label: 'Aktíva zásoby' },
+          { pattern: '2*', op: 'LIKE', sign: '+1', prio: 2, label: 'Aktíva fin' },
+          { pattern: '3*', op: 'LIKE', sign: '-1', prio: 2, label: 'Pasíva záväzky' },
+          { pattern: '4*', op: 'LIKE', sign: '-1', prio: 2, label: 'Pasíva vlastné high' },
+        ],
+      },
+      {
+        name: 'VAT Direction', status: 'active',
+        rules: [
+          { pattern: '343150', op: '=', sign: 'OUT', prio: 1, label: 'DPH výstup high' },
+          { pattern: '343350', op: '=', sign: 'IN',  prio: 1, label: 'DPH vstup high' },
+        ],
+      },
+    ];
+
+    var existingNR = await sbFetch('numerator_rulesets?select=id,name&limit=20');
+    var existingNRNames = (existingNR || []).map(function(r) { return r.name; });
+    for (var i = 0; i < SEED_NUMERATORS.length; i++) {
+      var sn = SEED_NUMERATORS[i];
+      if (existingNRNames.indexOf(sn.name) !== -1) continue;
       var rsRes = await sbFetch('numerator_rulesets', {
         method: 'POST', prefer: 'return=representation',
-        body: { name: n.name, status: n.status === 'Active' ? 'active' : 'draft', version: 1 },
+        body: { name: sn.name, status: sn.status, version: 1 },
       }).catch(function() { return null; });
       var rsId = rsRes && (Array.isArray(rsRes) ? rsRes[0] && rsRes[0].id : rsRes.id);
       if (!rsId) continue;
-      var rules = nRules[n.id] || [];
-      for (var j = 0; j < rules.length; j++) {
-        await window.etlDB.numerator.saveRule(rsId, rules[j]).catch(function() {});
+      for (var j = 0; j < sn.rules.length; j++) {
+        var nr = sn.rules[j];
+        await sbFetch('numerator_rules', {
+          method: 'POST', prefer: 'return=minimal',
+          body: {
+            ruleset_id:      rsId,
+            account_pattern: nr.pattern,
+            operator:        nr.op,
+            sign_value:      nr.sign === '+1' ? 1 : nr.sign === '-1' ? -1 : 0,
+            priority:        nr.prio,
+            label:           nr.label,
+          },
+        }).catch(function() {});
       }
+      console.log('[ETL Seed] Created numerator "' + sn.name + '"');
     }
+
     console.log('[ETL Seed] Done ✓');
   } catch (e) {
     console.warn('[ETL Seed] Failed:', e.message);

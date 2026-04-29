@@ -10,8 +10,26 @@ function SectionDashboard() {
       .catch(() => {});
   }, [dbStatus]);
 
-  const hasRuns = pipelineRuns.length > 0;
-  const max = hasRuns ? Math.max(...pipelineRuns.map(r => r.rows_processed || 0), 1) : 1;
+  const SK_DAYS = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+
+  const chartData = React.useMemo(() => {
+    if (pipelineRuns.length === 0) return [];
+    const byDate = {};
+    pipelineRuns.forEach(r => {
+      const ts = r.started_at || r.finished_at;
+      if (!ts) return;
+      const d = ts.slice(0, 10);
+      byDate[d] = (byDate[d] || 0) + 1;
+    });
+    const sorted = Object.entries(byDate).sort((a, b) => a[0] < b[0] ? -1 : 1).slice(-7);
+    return sorted.map(([date, count]) => {
+      const dow = new Date(date + 'T12:00:00').getDay();
+      return { date, count, label: SK_DAYS[dow] };
+    });
+  }, [pipelineRuns]);
+
+  const hasRuns = chartData.length > 0;
+  const max = hasRuns ? Math.max(...chartData.map(d => d.count), 1) : 1;
 
   const realStats = React.useMemo(() => {
     const numData = Object.values(transformedData).find(d => d.length > 0 && d[0]?._signed_amount !== undefined);
@@ -117,33 +135,26 @@ function SectionDashboard() {
         <Card
           className="col-span-2"
           title="Pipeline behy — posledných 7 dní"
-          subtitle="Spracovaných riadkov (RAW fáza)"
+          subtitle="Počet behov za deň"
         >
           {hasRuns ? (
             <>
               <div className="flex items-end gap-3 px-1 pb-1" style={{ height: 176 }}>
-                {pipelineRuns.slice().reverse().map((run, i) => {
-                  const val  = run.rows_processed || 0;
-                  const barH = Math.max(6, Math.round((val / max) * 150));
-                  const day  = new Date(run.finished_at || run.started_at).toLocaleDateString('sk-SK', { weekday: 'short' });
+                {chartData.map((d, i) => {
+                  const barH = Math.max(6, Math.round((d.count / max) * 150));
                   return (
                     <div key={i} className="flex-1 flex flex-col items-center gap-2 group" style={{ height: '100%' }}>
                       <div className="w-full flex items-end justify-center" style={{ height: 154 }}>
                         <div
-                          className={cls(
-                            'w-full rounded-t-sm transition-colors relative',
-                            run.status === 'success'
-                              ? 'bg-[#1E3A5F]/85 group-hover:bg-[#1E3A5F]'
-                              : 'bg-red-400/70 group-hover:bg-red-500'
-                          )}
+                          className="w-full rounded-t-sm bg-[#1E3A5F]/85 group-hover:bg-[#1E3A5F] transition-colors relative"
                           style={{ height: barH }}
                         >
                           <div className="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block text-[10px] font-mono bg-slate-900 text-white px-1.5 py-0.5 rounded whitespace-nowrap">
-                            {val.toLocaleString('sk-SK')}
+                            {d.count}
                           </div>
                         </div>
                       </div>
-                      <span className="text-[11px] text-slate-500 font-medium">{day}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">{d.label}</span>
                     </div>
                   );
                 })}

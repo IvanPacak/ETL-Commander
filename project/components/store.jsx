@@ -13,6 +13,7 @@ function AppStateProvider({ children }) {
   const [mappingRulesetIds, setMappingRulesetIds] = React.useState({});
   const [numeratorRules, setNumeratorRules]     = React.useState(NUMERATOR_RULES);
   const [numeratorRulesetIds, setNumeratorRulesetIds] = React.useState({});
+  const [numeratorsList, setNumeratorsList]     = React.useState(window.NUMERATORS || []);
   const [transformedData, setTransformedData]   = React.useState({});
   const [auditLog, setAuditLog]                 = React.useState([]);
   const [dbAuditLog, setDbAuditLog]             = React.useState([]);
@@ -377,6 +378,23 @@ function AppStateProvider({ children }) {
     return newVersion;
   }, [mappingVersions, mappingsList, addAuditEntry]);
 
+  // ── createNumeratorRuleset: vytvorí nový numerátor v DB + lokálnom stave ──
+  const createNumeratorRuleset = React.useCallback(async (name, user) => {
+    const ids     = numeratorsList.map(n => parseInt(n.id.replace('n', ''))).filter(x => !isNaN(x));
+    const nextNum = Math.max(...ids, 0) + 1;
+    const newId   = 'n' + nextNum;
+    const dbUuid  = await window.etlDB.numerator.createRuleset(name).catch(e => {
+      console.warn('[ETL] createNumeratorRuleset DB failed:', e.message);
+      return null;
+    });
+    const newNumerator = { id: newId, name, version: 'v1', status: 'Draft', activated: '—', activatedBy: '' };
+    setNumeratorsList(prev => [...prev, newNumerator]);
+    setNumeratorRules(prev => ({ ...prev, [newId]: [] }));
+    if (dbUuid) setNumeratorRulesetIds(prev => ({ ...prev, [newId]: dbUuid }));
+    await addAuditEntry('numerator.create', `Nový numerátor "${name}"`, user || 'Peter Novák');
+    return newNumerator;
+  }, [numeratorsList, addAuditEntry]);
+
   // ── activateNumerator: aktivuje numerátor v DB ───────────────────────────
   const activateNumerator = React.useCallback(async (numeratorId, label) => {
     const uuid = numeratorRulesetIds[numeratorId];
@@ -475,6 +493,8 @@ function AppStateProvider({ children }) {
     mappingVersions,
     createMapping, deleteRule, updateRule,
     // Numerator actions
+    numeratorsList, setNumeratorsList,
+    createNumeratorRuleset,
     activateNumerator,
     // Pivot
     duckDbReady, runPivotQuery,

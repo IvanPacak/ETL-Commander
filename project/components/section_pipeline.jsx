@@ -1,9 +1,10 @@
 // Section 2 — Pipeline Orchestrátor
 function SectionPipeline() {
-  const { dbStatus } = useAppState();
-  const [expanded, setExpanded] = React.useState({ raw: true, save: false, analytics: false });
-  const [running, setRunning]   = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
+  const { dbStatus, addAuditEntry } = useAppState();
+  const [expanded, setExpanded]     = React.useState({ raw: true, save: false, analytics: false });
+  const [running, setRunning]       = React.useState(false);
+  const [phaseStatus, setPhaseStatus] = React.useState({ raw: 'idle', save: 'idle', analytics: 'idle' });
+  const [showConfirm, setShowConfirm] = React.useState(false);
   const [pipelineRuns, setPipelineRuns]   = React.useState([]);
   const [loadingRuns, setLoadingRuns]     = React.useState(false);
 
@@ -22,23 +23,44 @@ function SectionPipeline() {
     },
   ];
 
-  React.useEffect(() => {
+  const loadRuns = () => {
     if (dbStatus !== 'online') return;
     setLoadingRuns(true);
     window.etlDB.pipeline.getLast7Days()
       .then(runs => { if (runs) setPipelineRuns(runs); })
       .catch(() => {})
       .finally(() => setLoadingRuns(false));
-  }, [dbStatus]);
+  };
 
-  const start = () => {
-    setRunning(true); setProgress(0);
-    const t = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) { clearInterval(t); setRunning(false); return 0; }
-        return p + 4;
-      });
-    }, 120);
+  React.useEffect(() => { loadRuns(); }, [dbStatus]);
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  const runPipeline = async () => {
+    setShowConfirm(false);
+    setRunning(true);
+    setPhaseStatus({ raw: 'idle', save: 'idle', analytics: 'idle' });
+
+    for (const ph of PHASES) {
+      setPhaseStatus(prev => ({ ...prev, [ph.id]: 'running' }));
+      await sleep(1500);
+      await window.etlDB.pipeline.insert(ph.id.toUpperCase(), 'success', 0, 1500).catch(() => {});
+      setPhaseStatus(prev => ({ ...prev, [ph.id]: 'success' }));
+      await sleep(200);
+    }
+
+    await addAuditEntry('pipeline.run', 'Manuálny pipeline beh dokončený (RAW+SAVE+ANALYTICS)');
+    setRunning(false);
+    loadRuns();
+  };
+
+  const phaseIcon = (id) => {
+    const s = phaseStatus[id];
+    if (s === 'running') return (
+      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>
+    );
+    if (s === 'success') return <IcoCheck className="w-4 h-4 text-emerald-400"/>;
+    return <Badge tone="neutral" dot>idle</Badge>;
   };
 
   return (
@@ -51,7 +73,7 @@ function SectionPipeline() {
             <Button variant="secondary" icon={<IcoCheck className="w-4 h-4"/>} disabled title="Dostupné v Fáze 2">
               Validovať pred spustením
             </Button>
-            <Button variant="primary" icon={<IcoPlay className="w-4 h-4"/>} onClick={start} disabled={running}>
+            <Button variant="primary" icon={<IcoPlay className="w-4 h-4"/>} onClick={() => setShowConfirm(true)} disabled={running}>
               {running ? 'Beží…' : 'Spustiť pipeline manuálne'}
             </Button>
           </>
@@ -64,7 +86,7 @@ function SectionPipeline() {
           <div>
             <h3 className="text-[13px] font-semibold text-slate-800">Fázy pipeline</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {running ? `Prebieha — ${progress} %` : 'Kliknite na fázu pre detaily'}
+              {running ? 'Prebieha manuálny beh…' : 'Kliknite na fázu pre detaily'}
             </p>
           </div>
           <Badge tone={running ? 'info' : 'neutral'} dot>{running ? 'running' : 'idle'}</Badge>
@@ -74,22 +96,29 @@ function SectionPipeline() {
           <div className="flex items-stretch gap-3">
             {PHASES.map((ph, idx) => {
               const isExpanded = expanded[ph.id];
+              const ps = phaseStatus[ph.id];
               return (
                 <React.Fragment key={ph.id}>
-                  <div className="flex-1 rounded-lg ring-1 ring-slate-200 overflow-hidden">
+                  <div className={cls('flex-1 rounded-lg ring-1 overflow-hidden transition-colors',
+                    ps === 'running' ? 'ring-[#1E3A5F]' : ps === 'success' ? 'ring-emerald-400' : 'ring-slate-200'
+                  )}>
                     <button
                       onClick={() => setExpanded(s => ({...s, [ph.id]: !s[ph.id]}))}
-                      className="w-full text-left px-4 py-3.5 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors border-b border-slate-200"
+                      className={cls('w-full text-left px-4 py-3.5 flex items-center justify-between border-b border-slate-200 transition-colors',
+                        ps === 'running' ? 'bg-[#1E3A5F]/5' : ps === 'success' ? 'bg-emerald-50' : 'bg-slate-50 hover:bg-slate-100'
+                      )}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-7 h-7 rounded-md bg-[#1E3A5F] text-white text-xs font-bold flex items-center justify-center font-mono">{ph.num}</span>
+                        <span className={cls('w-7 h-7 rounded-md text-white text-xs font-bold flex items-center justify-center font-mono',
+                          ps === 'success' ? 'bg-emerald-500' : 'bg-[#1E3A5F]'
+                        )}>{ph.num}</span>
                         <div>
                           <div className="text-sm font-semibold text-slate-900 tracking-tight">{ph.name}</div>
                           <div className="text-[11px] text-slate-500">{ph.duration}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge tone="neutral" dot>idle</Badge>
+                        {phaseIcon(ph.id)}
                         <IcoChevD className={cls('w-4 h-4 text-slate-400 transition-transform', !isExpanded && '-rotate-90')}/>
                       </div>
                     </button>
@@ -108,18 +137,6 @@ function SectionPipeline() {
               );
             })}
           </div>
-
-          {running && (
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between text-xs text-slate-600 mb-1.5">
-                <span className="font-medium">Spustený manuálny beh</span>
-                <span className="font-mono">{progress}%</span>
-              </div>
-              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-[#1E3A5F] transition-all" style={{ width: `${progress}%` }}></div>
-              </div>
-            </div>
-          )}
         </div>
       </Card>
 
@@ -130,7 +147,7 @@ function SectionPipeline() {
               <IcoRefresh className="w-5 h-5 text-slate-400"/>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed max-w-[160px] mx-auto">
-              Cron scheduler dostupný v <span className="font-medium text-slate-700">Fáze 2</span> — Pipeline orchestrácia.
+              Cron scheduler dostupný v <span className="font-medium text-slate-700">Fáze 3</span> — Pipeline orchestrácia.
             </p>
           </div>
         </Card>
@@ -188,7 +205,7 @@ function SectionPipeline() {
               {pipelineRuns.map((r, i) => (
                 <tr key={r.id || i} className={cls('border-b border-slate-100 last:border-0 hover:bg-slate-50/60', i % 2 ? 'bg-slate-50/30' : '')}>
                   <td className="px-4 py-2.5 font-mono text-[12px] text-slate-700">
-                    {new Date(r.finished_at || r.started_at).toLocaleString('sk-SK', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    {new Date(r.started_at || r.finished_at).toLocaleString('sk-SK', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                   </td>
                   <td className="px-4 py-2.5 text-slate-800 font-medium">{r.phase || '—'}</td>
                   <td className="px-4 py-2.5">
@@ -212,11 +229,35 @@ function SectionPipeline() {
               <IcoActivity className="w-5 h-5 text-[#1E3A5F]/40"/>
             </div>
             <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
-              História behov sa naplní po prvom pipeline spustení. Kliknite „Spustiť pipeline manuálne" alebo nahrajte dáta v sekcii <span className="font-medium text-slate-700">Importer</span>.
+              Zatiaľ žiadne pipeline behy. Spustite prvý beh tlačidlom <span className="font-medium text-slate-700">Spustiť pipeline manuálne</span> vyššie.
             </p>
           </div>
         )}
       </Card>
+
+      {/* Confirmation modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowConfirm(false)}>
+          <div className="bg-white rounded-lg shadow-2xl ring-1 ring-slate-200 w-[420px] p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-[#1E3A5F]/8 flex items-center justify-center">
+                <IcoPlay className="w-5 h-5 text-[#1E3A5F]"/>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Spustiť manuálny pipeline beh?</h3>
+                <p className="text-xs text-slate-500 mt-0.5">RAW → SAVE → ANALYTICS</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-5 leading-relaxed">
+              Sekvenčne prebehú všetky 3 fázy. Každá fáza bude zaznamenaná do histórie behov v Supabase.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setShowConfirm(false)}>Zrušiť</Button>
+              <Button variant="primary" icon={<IcoPlay className="w-4 h-4"/>} onClick={runPipeline}>Spustiť</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

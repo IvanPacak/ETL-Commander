@@ -113,6 +113,34 @@ function AdminDb() {
             <li className="flex items-center gap-2"><IcoCheck className="w-4 h-4 text-emerald-500"/><span className="text-slate-700">Materialized view: analytics.gl_summary</span></li>
           </ul>
         </div>
+
+        <div className="rounded-md ring-1 ring-slate-200 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-slate-800">Automatizácia (Fáza 3)</h4>
+            <Badge tone="navy">Coming soon</Badge>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed mb-3">
+            Pre nočné automatické pipeline behy odporúčame aktivovať <span className="font-mono font-medium text-slate-700">pg_cron</span> extension v Supabase.
+          </p>
+          <a
+            href="https://supabase.com/dashboard/project/clnkarllsszrlobvxtdw"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#1E3A5F] hover:underline mb-3"
+          >
+            <IcoGlobe className="w-3.5 h-3.5"/>
+            Otvoriť Supabase Dashboard
+          </a>
+          <div className="rounded-md bg-slate-900 p-3 font-mono text-[11px] text-slate-300 leading-relaxed overflow-x-auto">
+            <span className="text-slate-500">-- Aktivuj pg_cron (raz)</span>{'\n'}
+            <span className="text-sky-400">CREATE EXTENSION IF NOT EXISTS</span> pg_cron;{'\n\n'}
+            <span className="text-slate-500">-- Denný pipeline beh o 23:00</span>{'\n'}
+            <span className="text-sky-400">SELECT</span> cron.<span className="text-emerald-400">schedule</span>(<span className="text-amber-300">'daily-pipeline'</span>, <span className="text-amber-300">'0 23 * * *'</span>,{'\n'}
+            {'  '}<span className="text-amber-300">$$INSERT INTO public.pipeline_runs (phase, status, rows_processed, duration_ms, started_at)</span>{'\n'}
+            {'    '}<span className="text-amber-300">VALUES ('RAW', 'scheduled', 0, 0, NOW())$$</span>{'\n'}
+            );
+          </div>
+        </div>
       </div>
 
       {/* Reset DB Modal */}
@@ -221,7 +249,17 @@ function AdminAudit() {
         {dbStatus !== 'online' && <Badge tone="warning" dot>offline</Badge>}
         {newCount > 0 && <Badge tone="navy">{newCount} nových akcií</Badge>}
         {loading && <span className="text-xs text-slate-400">Načítavam…</span>}
-        <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>}>Export CSV</Button>
+        <Button variant="secondary" size="sm" icon={<IcoDownload className="w-3.5 h-3.5"/>} onClick={() => {
+          const rows = [['Time','User','Action','Detail']].concat(
+            filtered.map(a => [a.time, a.user, a.action, a.detail || ''].map(v => '"' + String(v || '').replace(/"/g, '""') + '"'))
+          );
+          const csv  = rows.map(r => r.join(',')).join('\n');
+          const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href = url; a.download = 'audit_log.csv'; a.click();
+          URL.revokeObjectURL(url);
+        }}>Export CSV</Button>
       </div>
 
       {filtered.length === 0 && !loading ? (

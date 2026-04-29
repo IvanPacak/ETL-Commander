@@ -1,6 +1,6 @@
 // Section 3 — Importer
 function SectionImporter() {
-  const { loadFile, uploadedFiles, deduplicateSuppliers, dbStatus } = useAppState();
+  const { loadFile, uploadedFiles, deduplicateSuppliers, dbStatus, addAuditEntry } = useAppState();
   const [tab, setTab] = React.useState('csv');
   const [drag, setDrag] = React.useState(false);
   const [loadedFile, setLoadedFile] = React.useState(null);
@@ -10,12 +10,36 @@ function SectionImporter() {
   const [fileHistory, setFileHistory] = React.useState([]);
   const fileInputRef = React.useRef(null);
 
+  const [showNewImport, setShowNewImport] = React.useState(false);
+  const [newImportName, setNewImportName] = React.useState('');
+  const [newImportType, setNewImportType] = React.useState('CSV');
+  const [newImportDesc, setNewImportDesc] = React.useState('');
+  const [newImportFreq, setNewImportFreq] = React.useState('Manuálne');
+  const [savingImport, setSavingImport] = React.useState(false);
+
   React.useEffect(() => {
     if (dbStatus !== 'online') return;
     window.etlDB.file.getAll()
       .then(files => { if (files) setFileHistory(files); })
       .catch(() => {});
   }, [dbStatus, loadedFile]);
+
+  const handleSaveNewImport = async () => {
+    if (!newImportName.trim()) return;
+    setSavingImport(true);
+    try {
+      await window.etlDB.files.insert(newImportName.trim(), 0, [], { type: newImportType.toLowerCase() });
+      await addAuditEntry('import.create', 'Nový import: ' + newImportName.trim());
+      const files = await window.etlDB.file.getAll().catch(() => null);
+      if (files) setFileHistory(files);
+      setShowNewImport(false);
+      setNewImportName(''); setNewImportDesc(''); setNewImportType('CSV'); setNewImportFreq('Manuálne');
+    } catch(e) {
+      console.error('[ETL] saveNewImport failed:', e.message);
+    } finally {
+      setSavingImport(false);
+    }
+  };
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -102,7 +126,7 @@ function SectionImporter() {
       <PageHeader
         title="Importer"
         subtitle="Nahrávanie súborov a konfigurácia zdrojov dát"
-        actions={<Button icon={<IcoPlus className="w-4 h-4"/>}>Nový import</Button>}
+        actions={<Button icon={<IcoPlus className="w-4 h-4"/>} onClick={() => setShowNewImport(true)}>Nový import</Button>}
       />
 
       <Card padded={false} className="mb-6">
@@ -353,6 +377,56 @@ function SectionImporter() {
           </div>
         )}
       </Card>
+      {showNewImport && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowNewImport(false)}>
+          <div className="bg-white rounded-xl shadow-2xl ring-1 ring-slate-200 w-[480px] p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-slate-900 mb-4">Nový import</h3>
+            <div className="space-y-3">
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Názov importu <span className="text-red-500">*</span></div>
+                <input
+                  className="w-full h-9 px-3 text-sm rounded-md ring-1 ring-slate-300 focus:ring-2 focus:ring-[#1E3A5F] outline-none"
+                  placeholder="napr. GL transakcie január 2025"
+                  value={newImportName}
+                  onChange={e => setNewImportName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-500 mb-1">Typ zdroja</div>
+                  <Select value={newImportType} onChange={setNewImportType} options={[
+                    {value:'CSV',label:'CSV'},{value:'Excel',label:'Excel'},
+                    {value:'HTTP',label:'HTTP'},{value:'Database',label:'Database'},
+                  ]}/>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 mb-1">Frekvencia</div>
+                  <Select value={newImportFreq} onChange={setNewImportFreq} options={[
+                    {value:'Manuálne',label:'Manuálne'},{value:'Denne',label:'Denne'},
+                    {value:'Týždenne',label:'Týždenne'},{value:'Mesačne',label:'Mesačne'},
+                  ]}/>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Popis / URL / cesta</div>
+                <input
+                  className="w-full h-9 px-3 text-sm font-mono rounded-md ring-1 ring-slate-300 focus:ring-2 focus:ring-[#1E3A5F] outline-none"
+                  placeholder="voliteľné"
+                  value={newImportDesc}
+                  onChange={e => setNewImportDesc(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-5 pt-4 border-t border-slate-100">
+              <Button variant="secondary" onClick={() => setShowNewImport(false)} disabled={savingImport}>Zrušiť</Button>
+              <Button variant="primary" onClick={handleSaveNewImport} disabled={savingImport || !newImportName.trim()}>
+                {savingImport ? 'Ukladám…' : 'Uložiť'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
