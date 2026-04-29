@@ -35,21 +35,13 @@ function AppStateProvider({ children }) {
         if (rulesets && rulesets.length > 0) {
           const idMap  = {};
           const merged = { ...MAPPING_RULES };
-          rulesets.forEach(rs => {
+          rulesets.forEach((rs, idx) => {
+            const localKey = 'm' + (idx + 1);
+            idMap[localKey] = rs.id;
             const local = (window.MAPPINGS || []).find(m => m.name === rs.name);
-            if (local) {
-              idMap[local.id] = rs.id;
-              if (rs.mapping_rules && rs.mapping_rules.length > 0) {
-                merged[local.id] = rs.mapping_rules.map(r => ({
-                  src:   r.source_value,
-                  op:    r.operator === 'LIKE' ? 'LIKE' : r.operator === 'ELSE' ? 'ELSE' : '=',
-                  tgt:   r.target_value,
-                  prio:  r.priority,
-                  _dbId: r.id,
-                }));
-              }
-            } else {
-              merged['db_' + rs.id] = (rs.mapping_rules || []).map(r => ({
+            const targetKey = local ? local.id : localKey;
+            if (rs.mapping_rules && rs.mapping_rules.length > 0) {
+              merged[targetKey] = rs.mapping_rules.map(r => ({
                 src:   r.source_value,
                 op:    r.operator,
                 tgt:   r.target_value,
@@ -62,15 +54,36 @@ function AppStateProvider({ children }) {
           setMappingRules(merged);
         }
 
-        // Načítaj numerator rulesets (len ID mapu)
+        // Načítaj numerator rulesets + pravidlá
         const numRulesets = await window.etlDB.numerator.getRulesets();
         if (numRulesets && numRulesets.length > 0) {
-          const idMap = {};
-          numRulesets.forEach(rs => {
-            const local = (window.NUMERATORS || []).find(n => n.name === rs.name);
-            if (local) idMap[local.id] = rs.id;
+          const idMap   = {};
+          const nMerged = { ...NUMERATOR_RULES };
+          numRulesets.forEach((rs, idx) => {
+            const localKey = 'n' + (idx + 1);
+            idMap[localKey] = rs.id;
+            if (rs.numerator_rules && rs.numerator_rules.length > 0) {
+              nMerged[localKey] = rs.numerator_rules.map(r => ({
+                id:       r.id,
+                pattern:  r.account_pattern,
+                sign:     r.sign_value > 0 ? '+1' : '-1',
+                category: r.label,
+                prio:     r.priority,
+                _dbId:    r.id,
+              }));
+            }
           });
           setNumeratorRulesetIds(idMap);
+          setNumeratorRules(nMerged);
+          // Sync numeratorsList from DB
+          setNumeratorsList(numRulesets.map((rs, idx) => ({
+            id:          'n' + (idx + 1),
+            name:        rs.name,
+            version:     'v' + (rs.version || 1),
+            status:      rs.status === 'active' ? 'Active' : 'Draft',
+            activated:   rs.activated_at ? new Date(rs.activated_at).toLocaleDateString('sk-SK') : '—',
+            activatedBy: rs.activated_by || '',
+          })));
         }
 
         // Načítaj posledných 50 audit záznamov
@@ -128,11 +141,12 @@ function AppStateProvider({ children }) {
   }, []);
 
   // ── Audit log helper ─────────────────────────────────────────────────────
-  const addAuditEntry = React.useCallback(async (action, detail, user = 'Peter Novák') => {
+  const addAuditEntry = React.useCallback(async (action, detail, user) => {
+    const resolvedUser = user || window.__ETL_USER__ || 'Peter Novák';
     const now  = new Date();
     const time = now.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
-    setAuditLog(prev => [{ time: `dnes ${time}`, user, action, detail }, ...prev]);
-    window.etlDB.audit.insert(action, detail, user).catch(e =>
+    setAuditLog(prev => [{ time: `dnes ${time}`, user: resolvedUser, action, detail }, ...prev]);
+    window.etlDB.audit.insert(action, detail, resolvedUser).catch(e =>
       console.warn('[ETL] audit persist failed:', e.message)
     );
   }, []);
@@ -154,12 +168,9 @@ function AppStateProvider({ children }) {
           setActiveTable(fileKey);
 
           const ext    = file.name.split('.').pop().toLowerCase();
-          const fileId = await window.etlDB.file.save({
-            fileName: file.name,
-            fileType: ['xlsx', 'xls'].includes(ext) ? 'xlsx' : 'csv',
-            rowCount: rows.length,
-            colCount: cols.length,
-          });
+          const fType  = ['xlsx', 'xls'].includes(ext) ? 'xlsx' : 'csv';
+          const currentUser = window.__ETL_USER__ || 'Peter Novák';
+          const fileId = await window.etlDB.files.insert(file.name, rows.length, cols.length, fType, currentUser);
 
           if (fileId) {
             setFileIds(prev => ({ ...prev, [fileKey]: fileId }));
@@ -237,7 +248,8 @@ function AppStateProvider({ children }) {
           rule.pattern.startsWith('*') ? account.endsWith(pat)   :
           account === rule.pattern;
         if (matches) {
-          sign = rule.sign === '+1' ? 1 : rule.sign === '-1' ? -1 : 0;
+          const signNum = typeof rule.sign === 'number' ? rule.sign : parseInt(rule.sign);
+          sign = signNum === 1 ? 1 : signNum === -1 ? -1 : 0;
           break;
         }
       }
@@ -357,8 +369,9 @@ function AppStateProvider({ children }) {
   // ── activateMappingRuleset: verzuje + aktivuje v DB ──────────────────────
   const activateMappingRuleset = React.useCallback(async (mappingId) => {
     const uuid = mappingRulesetIds[mappingId];
+    const user = window.__ETL_USER__ || 'Peter Novák';
     if (uuid) {
-      await window.etlDB.mapping.activateRuleset(uuid).catch(e =>
+      await window.etlDB.mapping.activateRuleset(uuid, user).catch(e =>
         console.warn('[ETL] activateMappingRuleset DB failed:', e.message)
       );
     }
@@ -380,30 +393,39 @@ function AppStateProvider({ children }) {
 
   // ── createNumeratorRuleset: vytvorí nový numerátor v DB + lokálnom stave ──
   const createNumeratorRuleset = React.useCallback(async (name, user) => {
+    const resolvedUser = user || window.__ETL_USER__ || 'Peter Novák';
     const ids     = numeratorsList.map(n => parseInt(n.id.replace('n', ''))).filter(x => !isNaN(x));
     const nextNum = Math.max(...ids, 0) + 1;
     const newId   = 'n' + nextNum;
-    const dbUuid  = await window.etlDB.numerator.createRuleset(name).catch(e => {
+    const dbRecord = await window.etlDB.numerator.createRuleset(name, resolvedUser).catch(e => {
       console.warn('[ETL] createNumeratorRuleset DB failed:', e.message);
       return null;
     });
-    const newNumerator = { id: newId, name, version: 'v1', status: 'Draft', activated: '—', activatedBy: '' };
+    const newNumerator = {
+      id:          newId,
+      name,
+      version:     'v' + (dbRecord && dbRecord.version ? dbRecord.version : 1),
+      status:      'Draft',
+      activated:   '—',
+      activatedBy: '',
+    };
     setNumeratorsList(prev => [...prev, newNumerator]);
     setNumeratorRules(prev => ({ ...prev, [newId]: [] }));
-    if (dbUuid) setNumeratorRulesetIds(prev => ({ ...prev, [newId]: dbUuid }));
-    await addAuditEntry('numerator.create', `Nový numerátor "${name}"`, user || 'Peter Novák');
+    if (dbRecord && dbRecord.id) setNumeratorRulesetIds(prev => ({ ...prev, [newId]: dbRecord.id }));
+    await addAuditEntry('numerator.create', `Nový numerátor "${name}"`, resolvedUser);
     return newNumerator;
   }, [numeratorsList, addAuditEntry]);
 
   // ── activateNumerator: aktivuje numerátor v DB ───────────────────────────
   const activateNumerator = React.useCallback(async (numeratorId, label) => {
     const uuid = numeratorRulesetIds[numeratorId];
+    const user = window.__ETL_USER__ || 'Peter Novák';
     if (uuid) {
-      await window.etlDB.numerator.activateRuleset(uuid).catch(e =>
+      await window.etlDB.numerator.activateRuleset(uuid, user).catch(e =>
         console.warn('[ETL] activateNumerator DB failed:', e.message)
       );
     }
-    await addAuditEntry('numerator.activate', label || `Numerátor ${numeratorId} aktivovaný`);
+    await addAuditEntry('numerator.activate', label || `Numerátor ${numeratorId} aktivovaný`, user);
   }, [numeratorRulesetIds, addAuditEntry]);
 
   // ── runPivotQuery ─────────────────────────────────────────────────────────

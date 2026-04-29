@@ -10,7 +10,11 @@ function SectionDashboard() {
       .catch(() => {});
   }, [dbStatus]);
 
-  const SK_DAYS = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+  const DAYS_SK = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+  const dayLabel = (isoString) => {
+    if (!isoString) return '?';
+    return DAYS_SK[new Date(isoString).getDay()];
+  };
 
   const chartData = React.useMemo(() => {
     if (pipelineRuns.length === 0) return [];
@@ -19,13 +23,13 @@ function SectionDashboard() {
       const ts = r.started_at || r.finished_at;
       if (!ts) return;
       const d = ts.slice(0, 10);
-      byDate[d] = (byDate[d] || 0) + 1;
+      if (!byDate[d]) byDate[d] = { count: 0, ts };
+      byDate[d].count++;
     });
-    const sorted = Object.entries(byDate).sort((a, b) => a[0] < b[0] ? -1 : 1).slice(-7);
-    return sorted.map(([date, count]) => {
-      const dow = new Date(date + 'T12:00:00').getDay();
-      return { date, count, label: SK_DAYS[dow] };
-    });
+    return Object.entries(byDate)
+      .sort((a, b) => a[0] < b[0] ? -1 : 1)
+      .slice(-7)
+      .map(([date, data]) => ({ date, count: data.count, label: dayLabel(data.ts) }));
   }, [pipelineRuns]);
 
   const hasRuns = chartData.length > 0;
